@@ -1,0 +1,63 @@
+<section class="attendee-form" style="padding: 22px 0; border-bottom: 1px solid #e6ecef">
+    <div class="admin-header">
+        <h2 class="section-title attendee-heading" style="margin: 0">Attendee {{ is_numeric($index) ? $index + 1 : '' }}</h2>
+        <button class="secondary remove-attendee" type="button" aria-label="Remove attendee form" @if ($index === 0) hidden @endif>Remove</button>
+    </div>
+    <div class="fields">
+        <div class="field">
+            <label for="attendees_{{ $index }}_surname">Surname <span class="required">*</span></label>
+            <input id="attendees_{{ $index }}_surname" name="attendees[{{ $index }}][surname]" value="{{ $attendee['surname'] ?? '' }}" autocomplete="family-name" maxlength="100" required>
+            @error('attendees.'.$index.'.surname') <p class="error-text">{{ $message }}</p> @enderror
+        </div>
+        <div class="field">
+            <label for="attendees_{{ $index }}_given_name">Given name <span class="required">*</span></label>
+            <input id="attendees_{{ $index }}_given_name" name="attendees[{{ $index }}][given_name]" value="{{ $attendee['given_name'] ?? '' }}" autocomplete="given-name" maxlength="100" required>
+            @error('attendees.'.$index.'.given_name') <p class="error-text">{{ $message }}</p> @enderror
+        </div>
+        <div class="field">
+            <label for="attendees_{{ $index }}_middle_initial">Middle initial</label>
+            <input id="attendees_{{ $index }}_middle_initial" name="attendees[{{ $index }}][middle_initial]" value="{{ $attendee['middle_initial'] ?? '' }}" maxlength="10">
+            @error('attendees.'.$index.'.middle_initial') <p class="error-text">{{ $message }}</p> @enderror
+        </div>
+        <div class="field">
+            <label for="attendees_{{ $index }}_nickname">Nickname</label>
+            <input id="attendees_{{ $index }}_nickname" name="attendees[{{ $index }}][nickname]" value="{{ $attendee['nickname'] ?? '' }}" maxlength="100">
+            @error('attendees.'.$index.'.nickname') <p class="error-text">{{ $message }}</p> @enderror
+        </div>
+        <div class="field">
+            <label for="attendees_{{ $index }}_age">Age <span class="required">*</span></label>
+            <input id="attendees_{{ $index }}_age" name="attendees[{{ $index }}][age]" type="number" value="{{ $attendee['age'] ?? '' }}" min="1" max="120" required>
+            @error('attendees.'.$index.'.age') <p class="error-text">{{ $message }}</p> @enderror
+        </div>
+        <div class="field">
+            <label for="attendees_{{ $index }}_gender">Gender <span class="required">*</span></label>
+            <select id="attendees_{{ $index }}_gender" name="attendees[{{ $index }}][gender]" required>
+                <option value="">Choose an option</option>
+                @foreach ($genders as $gender)
+                    <option value="{{ $gender }}" @selected(($attendee['gender'] ?? '') === $gender)>{{ $gender }}</option>
+                @endforeach
+            </select>
+            @error('attendees.'.$index.'.gender') <p class="error-text">{{ $message }}</p> @enderror
+        </div>
+        <div class="field">
+            <label for="attendees_{{ $index }}_shirt_size">Shirt size <span class="required">*</span></label>
+            <select id="attendees_{{ $index }}_shirt_size" name="attendees[{{ $index }}][shirt_size]" required>
+                <option value="">Choose a size</option>
+                @foreach ($shirtSizes as $size)
+                    <option value="{{ $size }}" @selected(($attendee['shirt_size'] ?? '') === $size)>{{ $size }}</option>
+                @endforeach
+            </select>
+            @error('attendees.'.$index.'.shirt_size') <p class="error-text">{{ $message }}</p> @enderror
+        </div>
+        <div class="field">
+            <label for="attendees_{{ $index }}_division">Division <span class="required">*</span></label>
+            <input id="attendees_{{ $index }}_division" name="attendees[{{ $index }}][division]" value="{{ $attendee['division'] ?? '' }}" maxlength="150" required>
+            @error('attendees.'.$index.'.division') <p class="error-text">{{ $message }}</p> @enderror
+        </div>
+        <div class="field">
+            <label for="attendees_{{ $index }}_ministry">Ministry <span class="required">*</span></label>
+            <input id="attendees_{{ $index }}_ministry" name="attendees[{{ $index }}][ministry]" value="{{ $attendee['ministry'] ?? '' }}" maxlength="150" required>
+            @error('attendees.'.$index.'.ministry') <p class="error-text">{{ $message }}</p> @enderror
+        </div>
+    </div>
+</section>
