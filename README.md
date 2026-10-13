@@ -48,6 +48,28 @@ On Windows, make sure `extension=gd` is enabled in the `php.ini` used by the com
 
    Open `http://127.0.0.1:8000`.
 
+## Run with Docker
+
+1. Configure `.env` as described above. For local use, keep `APP_URL=http://127.0.0.1:8000`; make sure `APP_KEY` is generated and `APP_DEBUG=false` before using the container beyond local development.
+2. Build and start the container with persistent storage:
+
+   ```sh
+   docker build -t convention-registration .
+   docker run -d --name convention-registration -p 8000:80 --env-file .env -e GOOGLE_SHEETS_REDIRECT_URI=http://127.0.0.1:8000/admin/google-sheets/callback -v convention-storage:/var/www/html/storage -v convention-database:/var/www/html/database convention-registration
+   docker exec convention-registration php artisan migrate --force
+   ```
+
+   Open `http://127.0.0.1:8000`. The named volumes keep the SQLite database, uploaded payment proofs, and Google OAuth files across container replacements. The `.env` file, local credentials, uploads, database, and other private storage are excluded from the Docker build context.
+3. If using Google Sheets, copy the OAuth client JSON into the persistent storage volume:
+
+   ```sh
+   docker exec convention-registration mkdir -p /var/www/html/storage/app/private/google-sheets
+   docker cp storage/app/private/google-sheets/oauth-client.json convention-registration:/var/www/html/storage/app/private/google-sheets/oauth-client.json
+   ```
+
+   For a deployed hostname or HTTPS URL, update `APP_URL` and set `GOOGLE_SHEETS_REDIRECT_URI` to that host's exact `/admin/google-sheets/callback` URL; register the same URL in Google Cloud.
+4. To stop the app, run `docker stop convention-registration`. To start it again, run `docker start convention-registration`. Keep the named volumes; removing them deletes the database and uploaded files.
+
 ## Using the app
 
 - Choose one district and attach one PDF, JPEG, or PNG proof of payment (up to 10 MB) for the whole submission. Uploads stay on Laravel's private local disk and are not publicly accessible.
