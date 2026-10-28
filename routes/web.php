@@ -1,10 +1,13 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AdminController;
 use App\Http\Controllers\RegistrationController;
+use Illuminate\Support\Facades\Route;
 
 Route::get('/', [RegistrationController::class, 'create'])->name('registrations.create');
+Route::post('/registration/email', [RegistrationController::class, 'verifyEmail'])->name('registrations.verify-email');
+Route::get('/registration/details', [RegistrationController::class, 'details'])->name('registrations.details');
+Route::post('/registration/draft', [RegistrationController::class, 'saveDraft'])->name('registrations.save-draft');
 Route::post('/registrations', [RegistrationController::class, 'store'])->name('registrations.store');
 
 Route::prefix('admin')->name('admin.')->group(function () {

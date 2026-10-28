@@ -25,7 +25,9 @@ class RegistrationTest extends TestCase
 
         Storage::fake('local');
         config(['registrations.admin_email' => 'organizer@example.com']);
+        config(['registrations.allowed_emails' => ['alex@example.com', 'sam@example.com']]);
         config(['services.google_sheets.spreadsheet_id' => 'test-spreadsheet-id']);
+        $this->withSession(['registration_verified_email' => 'alex@example.com']);
     }
 
     public function test_registration_is_saved_and_email_is_sent_to_submitter_and_admin(): void
@@ -36,6 +38,11 @@ class RegistrationTest extends TestCase
 
         $response->assertRedirect(route('registrations.create'));
         $response->assertSessionHas('success', '1 attendee registration(s) saved.');
+        $this->get(route('registrations.create'))
+            ->assertOk()
+            ->assertSee('id="registration-success-dialog"', false)
+            ->assertSee('Please check your email to see your registration details. Thank you!')
+            ->assertSee('src="'.asset('images/unstoppable-2027-banner.png').'"', false);
         $this->assertDatabaseHas('registrations', [
             'district' => 'CD',
             'surname' => 'Santos',
@@ -44,10 +51,13 @@ class RegistrationTest extends TestCase
         ]);
 
         $registration = Registration::firstOrFail();
+        $this->assertSame('2000-01-15', $registration->birthdate->format('Y-m-d'));
         Storage::disk('local')->assertExists($registration->proof_of_payment_path);
         Mail::assertSent(
             RegistrationReceived::class,
-            fn (RegistrationReceived $mail) => $mail->hasTo('alex@example.com') && ! $mail->includeProof,
+            fn (RegistrationReceived $mail) => $mail->hasTo('alex@example.com')
+                && ! $mail->includeProof
+                && str_contains($mail->render(), 'Birthdate:'),
         );
         Mail::assertSent(
             RegistrationReceived::class,
@@ -68,6 +78,72 @@ class RegistrationTest extends TestCase
         $this->assertDatabaseCount('registrations', 0);
     }
 
+    public function test_birthdate_is_required(): void
+    {
+        $data = $this->registrationData();
+        unset($data['attendees'][0]['birthdate']);
+
+        $this->post(route('registrations.store'), $data)
+            ->assertSessionHasErrors('attendees.0.birthdate');
+
+        $this->assertDatabaseCount('registrations', 0);
+    }
+
+    public function test_birthdate_must_be_a_valid_date_not_in_the_future(): void
+    {
+        $data = $this->registrationData();
+        $data['attendees'][0]['birthdate'] = 'not-a-date';
+
+        $this->post(route('registrations.store'), $data)
+            ->assertSessionHasErrors('attendees.0.birthdate');
+
+        $data['attendees'][0]['birthdate'] = now()->addDay()->toDateString();
+        $this->post(route('registrations.store'), $data)
+            ->assertSessionHasErrors('attendees.0.birthdate');
+
+        $this->assertDatabaseCount('registrations', 0);
+    }
+
+    public function test_attendees_under_16_cannot_register(): void
+    {
+        $data = $this->registrationData();
+        $data['attendees'][0]['birthdate'] = now()->subYears(15)->toDateString();
+
+        $this->post(route('registrations.store'), $data)
+            ->assertSessionHasErrors([
+                'attendees.0.birthdate' => 'Each attendee must be at least 16 years old to register.',
+            ]);
+
+        $this->assertDatabaseCount('registrations', 0);
+    }
+
+    public function test_attendee_age_must_be_at_least_16(): void
+    {
+        $data = $this->registrationData();
+        $data['attendees'][0]['age'] = '15';
+
+        $this->post(route('registrations.store'), $data)
+            ->assertSessionHasErrors([
+                'attendees.0.age' => 'Each attendee must be at least 16 years old to register.',
+            ]);
+
+        $this->assertDatabaseCount('registrations', 0);
+    }
+
+    public function test_attendee_can_register_on_their_16th_birthday(): void
+    {
+        Mail::fake();
+        $data = $this->registrationData();
+        $data['attendees'][0]['birthdate'] = now()->subYears(16)->toDateString();
+        $data['attendees'][0]['age'] = '16';
+
+        $this->post(route('registrations.store'), $data)
+            ->assertRedirect(route('registrations.create'))
+            ->assertSessionHas('success', '1 attendee registration(s) saved.');
+
+        $this->assertDatabaseCount('registrations', 1);
+    }
+
     public function test_each_submission_creates_a_separate_registration(): void
     {
         Mail::fake();
@@ -78,6 +154,7 @@ class RegistrationTest extends TestCase
         $second['email'] = 'sam@example.com';
 
         $this->post(route('registrations.store'), $first)->assertRedirect(route('registrations.create'));
+        $this->withSession(['registration_verified_email' => 'sam@example.com']);
         $this->post(route('registrations.store'), $second)->assertRedirect(route('registrations.create'));
 
         $this->assertDatabaseCount('registrations', 2);
@@ -161,6 +238,8 @@ class RegistrationTest extends TestCase
             $this->assertSame('Surname', $sheet->getCell('B1')->getValue());
             $this->assertSame('Santos', $sheet->getCell('B2')->getValue());
             $this->assertSame('Reyes', $sheet->getCell('B3')->getValue());
+            $this->assertSame('2000-01-15', $sheet->getCell('N2')->getValue());
+            $this->assertSame('alex@example.com', $sheet->getCell('K2')->getValue());
         } finally {
             unlink($file);
         }
@@ -215,11 +294,19 @@ class RegistrationTest extends TestCase
                 ->values();
 
             $this->assertCount(1, $appendRequests, json_encode($recordedRequests));
+            $this->assertStringContainsString(':append?', $appendRequests->first()[0]->url());
             $rows = $appendRequests->first()[0]->data()['values'];
+            $birthdateHeaderRequests = Http::recorded()->filter(
+                fn ($pair) => $pair[0]->method() === 'PUT'
+                    && $pair[0]->data() === ['values' => [['Birthdate']]],
+            );
             $this->assertCount(2, $rows);
             $this->assertSame('Santos', $rows[0][1]);
             $this->assertSame('Reyes', $rows[1][1]);
+            $this->assertSame('2000-01-15', $rows[0][13]);
             $this->assertSame('alex@example.com', $rows[0][10]);
+            $this->assertCount(1, $birthdateHeaderRequests);
+            Http::assertSent(fn ($request) => $request->hasHeader('Accept', 'application/json'));
         } finally {
             unlink($credentialsPath);
         }
@@ -242,6 +329,43 @@ class RegistrationTest extends TestCase
             );
 
         $this->assertDatabaseCount('registrations', 1);
+    }
+
+    public function test_google_sheets_api_failure_reports_the_google_error_and_preserves_registration(): void
+    {
+        Mail::fake();
+        Http::fake([
+            'https://oauth2.googleapis.com/token' => Http::response([
+                'access_token' => 'test-access-token',
+                'expires_in' => 3600,
+            ]),
+            'https://sheets.googleapis.com/v4/spreadsheets/*' => Http::response([
+                'error' => ['message' => 'The caller does not have permission'],
+            ], 403),
+        ]);
+
+        $credentialsPath = $this->createGoogleCredentialsFile();
+        Cache::put(
+            'google_sheets_token_'.hash('sha256', 'convention-test@example.iam.gserviceaccount.com'),
+            'test-access-token',
+            now()->addMinutes(10),
+        );
+        config([
+            'services.google_sheets.credentials_path' => $credentialsPath,
+        ]);
+
+        try {
+            $this->post(route('registrations.store'), $this->registrationData())
+                ->assertRedirect(route('registrations.create'))
+                ->assertSessionHas(
+                    'emailWarning',
+                    'The registrations were saved, but some notifications could not be completed: Google Sheets sync: Google Sheets API returned HTTP 403: The caller does not have permission.',
+                );
+
+            $this->assertDatabaseCount('registrations', 1);
+        } finally {
+            unlink($credentialsPath);
+        }
     }
 
     public function test_oauth_web_client_requires_admin_authorization_before_sync(): void
@@ -396,6 +520,22 @@ class RegistrationTest extends TestCase
         }
     }
 
+    public function test_admin_dashboard_displays_registration_birthdate(): void
+    {
+        Registration::create([
+            ...$this->registrationData()['attendees'][0],
+            'district' => 'CD',
+            'email' => 'alex@example.com',
+            'proof_of_payment_path' => 'proof-of-payment/payment-proof.pdf',
+        ]);
+
+        $this->withSession(['admin_authenticated' => true])
+            ->get(route('admin.index'))
+            ->assertOk()
+            ->assertSee('Birthdate')
+            ->assertSee('2000-01-15');
+    }
+
     public function test_oauth_client_appends_registration_to_google_sheet_after_authorization(): void
     {
         Mail::fake();
@@ -447,18 +587,155 @@ class RegistrationTest extends TestCase
     {
         $response = $this->get(route('registrations.create'))
             ->assertOk()
-            ->assertSee('Attendee 1')
-            ->assertSee('Add another form')
-            ->assertSee('Confirm and save')
-            ->assertSee('NORSD');
+            ->assertSee('Section 1 of 2')
+            ->assertSee('Email verification')
+            ->assertSee('Continue to Section 2')
+            ->assertDontSee('id="registration-form"', false);
 
         $html = $response->getContent();
-        $this->assertSame(1, substr_count($html, 'name="district"'));
-        $this->assertSame(1, substr_count($html, 'name="proof_of_payment"'));
-        $this->assertStringNotContainsString('attendees[0][district]', $html);
-        $this->assertStringNotContainsString('attendees[0][proof_of_payment]', $html);
-        $this->assertStringNotContainsString('attendees[__INDEX__][district]', $html);
-        $this->assertStringNotContainsString('attendees[__INDEX__][proof_of_payment]', $html);
+        $this->assertStringNotContainsString('name="district"', $html);
+
+        $detailsResponse = $this->get(route('registrations.details'))
+            ->assertOk()
+            ->assertSee('Section 2 of 2')
+            ->assertSee('Submission details')
+            ->assertSee('<h3 class="section-title">Attendee</h3>', false)
+            ->assertDontSee('Attendee 1')
+            ->assertSee('id="attendee-pagination"', false)
+            ->assertSee('aria-label="Delegate pages"', false)
+            ->assertSee('novalidate', false)
+            ->assertSee('<div class="registration-action-group">', false)
+            ->assertSee('Add another Delegate')
+            ->assertSee('>Back</a>', false)
+            ->assertSee('Submit registrations')
+            ->assertSee('Review your registration')
+            ->assertSee('id="registration-confirmation"', false)
+            ->assertSee('Confirm and submit')
+            ->assertSee('Go back and edit')
+            ->assertSee('id="registration-confirmation-summary"', false)
+            ->assertSee('id="proof-preview-dialog"', false)
+            ->assertSee('id="proof-preview-image"', false)
+            ->assertSee('Submission details')
+            ->assertSee('Email')
+            ->assertSee('District')
+            ->assertSee('Proof of payment')
+            ->assertSee('NORSD');
+
+        $detailsHtml = $detailsResponse->getContent();
+        $this->assertSame(1, substr_count($detailsHtml, 'name="district"'));
+        $this->assertSame(1, substr_count($detailsHtml, 'name="proof_of_payment"'));
+        $this->assertStringNotContainsString('attendees[0][district]', $detailsHtml);
+        $this->assertStringNotContainsString('attendees[0][proof_of_payment]', $detailsHtml);
+        $this->assertStringNotContainsString('attendees[__INDEX__][district]', $detailsHtml);
+        $this->assertStringNotContainsString('attendees[__INDEX__][proof_of_payment]', $detailsHtml);
+    }
+
+    public function test_registration_details_are_hidden_until_an_approved_email_is_entered(): void
+    {
+        $response = $this->withSession(['registration_verified_email' => null])
+            ->get(route('registrations.create'))
+            ->assertOk()
+            ->assertSee('Enter your approved email to continue')
+            ->assertSee('Verify email and continue')
+            ->assertDontSee('id="registration-form"', false);
+
+        $response->assertSee('id="email-verification-form"', false);
+        $this->get(route('registrations.details'))
+            ->assertRedirect(route('registrations.create'));
+    }
+
+    public function test_approved_email_unlocks_registration_details(): void
+    {
+        $this->withSession(['registration_verified_email' => null])
+            ->post(route('registrations.verify-email'), ['email' => ' ALEX@EXAMPLE.COM '])
+            ->assertRedirect(route('registrations.details'))
+            ->assertSessionHas('registration_verified_email', 'alex@example.com');
+
+        $this->get(route('registrations.details'))
+            ->assertOk()
+            ->assertSee('id="registration-form"', false)
+            ->assertSee('name="attendees[0][birthdate]"', false)
+            ->assertSee('type="date"', false)
+            ->assertSee('Email:')
+            ->assertSee('alex@example.com');
+    }
+
+    public function test_email_not_in_the_env_allowlist_cannot_continue(): void
+    {
+        $this->post(route('registrations.verify-email'), ['email' => 'unapproved@example.com'])
+            ->assertRedirect(route('registrations.create'))
+            ->assertSessionHasErrors('email')
+            ->assertSessionMissing('registration_verified_email');
+
+        $this->assertDatabaseCount('registrations', 0);
+    }
+
+    public function test_email_must_have_valid_syntax_even_if_listed(): void
+    {
+        config(['registrations.allowed_emails' => ['not-an-email']]);
+
+        $this->withSession(['registration_verified_email' => null])
+            ->post(route('registrations.verify-email'), ['email' => 'not-an-email'])
+            ->assertRedirect(route('registrations.create'))
+            ->assertSessionHasErrors('email');
+    }
+
+    public function test_registration_stays_closed_when_the_email_allowlist_is_empty(): void
+    {
+        config(['registrations.allowed_emails' => []]);
+
+        $this->withSession(['registration_verified_email' => null])
+            ->get(route('registrations.create'))
+            ->assertOk()
+            ->assertSee('Registration is not available until approved email addresses are configured.')
+            ->assertSee('Verify email and continue')
+            ->assertSee('disabled', false);
+
+        $this->post(route('registrations.verify-email'), ['email' => 'alex@example.com'])
+            ->assertRedirect(route('registrations.create'))
+            ->assertSessionHasErrors('email');
+    }
+
+    public function test_registration_submission_requires_the_verified_session_email(): void
+    {
+        $this->withSession(['registration_verified_email' => null])
+            ->post(route('registrations.store'), $this->registrationData())
+            ->assertRedirect(route('registrations.create'))
+            ->assertSessionHasErrors('email');
+
+        $this->assertDatabaseCount('registrations', 0);
+    }
+
+    public function test_registration_draft_is_restored_after_refreshing_details_page(): void
+    {
+        $this->postJson(route('registrations.save-draft'), [
+            'district' => 'CD',
+            'attendees' => [
+                ['surname' => 'Draft Santos', 'given_name' => 'Alex', 'birthdate' => '2000-01-15'],
+                ['surname' => 'Draft Reyes'],
+            ],
+        ])
+            ->assertOk()
+            ->assertJson(['saved' => true]);
+
+        $this->get(route('registrations.details'))
+            ->assertOk()
+            ->assertSee('value="Draft Santos"', false)
+            ->assertSee('value="Draft Reyes"', false)
+            ->assertSee('value="Alex"', false)
+            ->assertSee('value="2000-01-15"', false)
+            ->assertSee('<option value="CD" selected>', false);
+    }
+
+    public function test_registration_draft_cannot_be_saved_without_a_verified_email(): void
+    {
+        $this->withSession(['registration_verified_email' => null])
+            ->postJson(route('registrations.save-draft'), [
+                'attendees' => [['surname' => 'Draft Santos']],
+            ])
+            ->assertForbidden();
+
+        $this->assertFalse(session()->has('registration_draft'));
     }
 
     public function test_admin_export_requires_a_signed_in_admin(): void
@@ -492,6 +769,7 @@ class RegistrationTest extends TestCase
             $this->assertSame('District', $spreadsheet->getActiveSheet()->getCell('A1')->getValue());
             $this->assertSame('28', $spreadsheet->getActiveSheet()->getCell('F2')->getValue());
             $this->assertSame('alex@example.com', $spreadsheet->getActiveSheet()->getCell('K2')->getValue());
+            $this->assertSame('2000-01-15', $spreadsheet->getActiveSheet()->getCell('N2')->getValue());
         } finally {
             unlink($file);
         }
@@ -557,6 +835,7 @@ class RegistrationTest extends TestCase
                 'given_name' => 'Alex',
                 'middle_initial' => 'M',
                 'nickname' => 'Al',
+                'birthdate' => '2000-01-15',
                 'age' => '28',
                 'gender' => 'Prefer not to say',
                 'shirt_size' => 'M',

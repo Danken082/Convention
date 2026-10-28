@@ -29,7 +29,7 @@ return [
     ],
 
     'google_sheets' => [
-        'spreadsheet_id' => env('GOOGLE_SHEETS_SPREADSHEET_ID'),
+        'spreadsheet_id' => env('GOOGLE_SHEETS_SPREADSHEET_ID', env('GOOGLE_SHEETS_ID')),
         'tab_id' => env('GOOGLE_SHEETS_TAB_ID', '0'),
         'credentials_path' => env('GOOGLE_SHEETS_CREDENTIALS_JSON', env('GOOGLE_SERVICE_ACCOUNT_JSON')),
         'redirect_uri' => env(

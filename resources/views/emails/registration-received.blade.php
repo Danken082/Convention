@@ -13,6 +13,7 @@
 <ul>
     <li><strong>Attendee:</strong> {{ $attendee->given_name }} {{ $attendee->middle_initial }} {{ $attendee->surname }}</li>
     <li><strong>District:</strong> {{ $attendee->district }}</li>
+    <li><strong>Birthdate:</strong> {{ $attendee->birthdate?->format('Y-m-d') }}</li>
     <li><strong>Age:</strong> {{ $attendee->age }}</li>
     <li><strong>Gender:</strong> {{ $attendee->gender }}</li>
     <li><strong>Shirt size:</strong> {{ $attendee->shirt_size }}</li>

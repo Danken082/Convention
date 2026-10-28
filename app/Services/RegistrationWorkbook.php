@@ -15,7 +15,7 @@ class RegistrationWorkbook
 {
     public function create(iterable $registrations): Spreadsheet
     {
-        $spreadsheet = new Spreadsheet();
+        $spreadsheet = new Spreadsheet;
         $sheet = $spreadsheet->getActiveSheet();
         $sheet->setTitle('Registrations');
 
@@ -33,6 +33,7 @@ class RegistrationWorkbook
             'Email',
             'Proof of payment',
             'Submitted at',
+            'Birthdate',
         ];
 
         foreach ($headers as $column => $header) {
@@ -61,6 +62,7 @@ class RegistrationWorkbook
                 $registration->email,
                 basename($proofPath),
                 $registration->created_at?->toDateTimeString() ?? '',
+                $registration->birthdate?->format('Y-m-d') ?? '',
             ];
 
             foreach ($values as $column => $value) {
@@ -77,7 +79,7 @@ class RegistrationWorkbook
                 $imageInfo = @getimagesize($imagePath);
 
                 if ($imageInfo !== false && in_array($imageInfo[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG], true)) {
-                    $drawing = new Drawing();
+                    $drawing = new Drawing;
                     $drawing
                         ->setPath($imagePath)
                         ->setCoordinates('L'.$row)
@@ -91,7 +93,7 @@ class RegistrationWorkbook
             $row++;
         }
 
-        foreach (range('A', 'M') as $column) {
+        foreach (range('A', 'N') as $column) {
             $sheet->getColumnDimension($column)->setAutoSize(true);
         }
         $sheet->getColumnDimension('L')->setAutoSize(false)->setWidth(26);

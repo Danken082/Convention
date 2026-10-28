@@ -1,135 +1,91 @@
 @extends('layouts.app')
 
 @section('title', 'Register | Convention Registration')
+@section('body-class', 'registration-page')
 
 @section('content')
-    <div class="intro">
-        <div class="eyebrow">Attendee registration</div>
-        <h1>General Question</h1>
-        <p>Select one district and attach one payment proof for the submission. Add one individual form for each attendee. A single confirmation email address is used for everyone.</p>
+    <div class="registration-shell">
+        <div class="form-panel">
+            @if (session('emailWarning'))
+                <div class="notice warning" role="alert">{{ session('emailWarning') }}</div>
+            @endif
+            @if ($errors->any() && ! $errors->has('email'))
+                <div class="notice error" role="alert">Please check the highlighted fields and try again.</div>
+            @endif
+
+            <section class="intro" aria-labelledby="registration-intro-title">
+                <h1 id="registration-intro-title">UFY Registration</h1>
+                <p><strong><em>Hello mga ka-UFY! Our FOURSQUARE GLOBAL CONFERENCE FOR YOUNG ADULTS is set this July 23 to 25, 2027 at SMX Manila, Pasay City, Philippines.</em></strong></p>
+                <p><strong>How to fill out the registration form?</strong></p>
+                <ol class="registration-instructions">
+                    <li>Enter the official email that will be used to confirm the payment.</li>
+                    <li>Select your district.</li>
+                    <li>Fill out the names of the delegates included in the receipt.</li>
+                    <li>Attach your bank receipt as proof of payment and submit the form.</li>
+                    <li>Upon submission, wait for our confirmation that will be sent to your email.</li>
+                </ol>
+                <div class="bank-details">
+                    <p class="bank-details-title"><strong>BANK DETAILS</strong></p>
+                    <p>Bank Name: <strong>Bank of the Philippine Islands (BPI-Savings Account)</strong></p>
+                    <p>Account Name: <strong>Church of the Foursquare Gospel in the Philippines, Inc.</strong></p>
+                    <p>Account Number: <strong>005613-3775-62</strong></p>
+                    
+                </div>
+                <br>
+                <div class="facebook">
+                    <p><strong>For inquiries, kindly message the official UFY-PH Facebook page: Foursquare Youth - Philippines </strong></p>
+            <a href="https://www.facebook.com/foursquareyouthphilippines" target="_blank">https://www.facebook.com/FoursquareYouthPhilippines</a>
+               </div>
+            </div>
+            </section>
+
+            <section class="card email-step" aria-labelledby="email-step-title">
+                <h2 id="email-step-title" class="section-title">Email verification</h2>
+                @if (! $allowedEmailsConfigured)
+                    <p class="notice warning" role="alert">Registration is not available until approved email addresses are configured.</p>
+                @endif
+
+                <form id="email-verification-form" action="{{ route('registrations.verify-email') }}" method="POST">
+                    @csrf
+                    <label for="verification-email">{{ $verifiedEmail ? 'Change to another approved email' : 'Enter your approved email to continue' }} <span class="required">*</span></label>
+                    <input id="verification-email" name="email" type="email" value="{{ old('email', $verifiedEmail) }}" autocomplete="email" maxlength="255" required>
+                    @error('email') <p class="error-text" role="alert">{{ $message }}</p> @enderror
+                    <p class="hint">Only email addresses approved for this registration can continue.</p>
+                    <div class="actions">
+                                        @if ($verifiedEmail)
+                    <div id="verified-email-display">
+                        <a class="button" style="margin-right: auto; background: #d9d9d9; color: #150d08;" href="{{ route('registrations.details') }}">Continue to Section 2</a>
+                    </div>
+                @endif
+                        <button type="submit" @if (! $allowedEmailsConfigured) disabled @endif>{{ $verifiedEmail ? 'Verify another email' : 'Verify email and continue' }}</button>
+                    </div>
+                </form>
+            </section>
+        </div>
     </div>
 
     @if (session('success'))
-        <div class="notice success" role="status">{{ session('success') }}</div>
-    @endif
-    @if (session('emailWarning'))
-        <div class="notice warning" role="alert">{{ session('emailWarning') }}</div>
-    @endif
-    @if ($errors->any())
-        <div class="notice error" role="alert">Please check the highlighted fields and try again.</div>
-    @endif
-
-    @php($attendees = old('attendees', [[]]))
-    <form id="registration-form" class="card" action="{{ route('registrations.store') }}" method="POST" enctype="multipart/form-data">
-        @csrf
-
-        <h2 class="section-title">Submission details</h2>
-        <div class="fields">
-            <div class="field">
-                <label for="district">District <span class="required">*</span></label>
-                <select id="district" name="district" required>
-                    <option value="">Choose a district</option>
-                    @foreach ($districts as $district)
-                        <option value="{{ $district }}" @selected(old('district') === $district)>{{ $district }}</option>
-                    @endforeach
-                </select>
-                @error('district') <p class="error-text">{{ $message }}</p> @enderror
-            </div>
-            <div class="field">
-                <label for="proof_of_payment">Proof of payment <span class="required">*</span></label>
-                <input id="proof_of_payment" name="proof_of_payment" type="file" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" required>
-                <p class="hint">Attach one PDF, JPG, or PNG, up to 10 MB. This proof is shared by all attendees in this submission.</p>
-                @error('proof_of_payment') <p class="error-text">{{ $message }}</p> @enderror
-            </div>
-        </div>
-
-        <h2 class="section-title" style="margin-top: 30px">Individual fields</h2>
-        <div id="attendee-forms">
-            @foreach ($attendees as $index => $attendee)
-                @include('registrations._attendee', ['index' => $index, 'attendee' => $attendee])
-            @endforeach
-        </div>
-
-        <div class="actions" style="justify-content: space-between">
-            <button id="add-attendee" class="secondary" type="button">+ Add another form</button>
-            <button id="open-email-dialog" type="button">Save registrations</button>
-        </div>
-
-        <dialog id="email-dialog" aria-labelledby="email-dialog-title">
-            <h2 id="email-dialog-title">Where should we send the confirmation?</h2>
-            <p>We’ll send confirmation for all attendees to this address and notify the convention organizers.</p>
-            <label for="email">Your email address <span class="required">*</span></label>
-            <input id="email" name="email" type="email" value="{{ old('email') }}" autocomplete="email" maxlength="255">
-            @error('email') <p class="error-text">{{ $message }}</p> @enderror
-            <div class="dialog-actions">
-                <button id="cancel-email" class="secondary" type="button">Go back</button>
-                <button id="confirm-save" type="button">Confirm and save</button>
-            </div>
+        <dialog id="registration-success-dialog" aria-labelledby="registration-success-title">
+            <img
+                class="registration-success-logo"
+                src="{{ asset('images/unstoppable-2027-banner.png') }}"
+                alt="Unstoppable 2027, Foursquare Global Conference for Young Adults"
+            >
+            <h2 id="registration-success-title">Registration submitted</h2>
+            <p>Please check your email to see your registration details. Thank you!</p>
+            <button id="close-registration-success" type="button">Close</button>
         </dialog>
-
-        <template id="attendee-template">
-            @include('registrations._attendee', ['index' => '__INDEX__', 'attendee' => []])
-        </template>
-    </form>
+    @endif
 @endsection
 
-@push('scripts')
-    <script>
-        const form = document.getElementById('registration-form');
-        const attendeeForms = document.getElementById('attendee-forms');
-        const attendeeTemplate = document.getElementById('attendee-template');
-        const emailDialog = document.getElementById('email-dialog');
-        const emailInput = document.getElementById('email');
-        let nextAttendeeIndex = {{ count($attendees) }};
-
-        function updateAttendeeForms() {
-            const cards = [...attendeeForms.querySelectorAll('.attendee-form')];
-            cards.forEach((card, index) => {
-                card.querySelector('.attendee-heading').textContent = `Attendee ${index + 1}`;
-                card.querySelector('.remove-attendee').hidden = cards.length === 1;
+@if (session('success'))
+    @push('scripts')
+        <script>
+            const registrationSuccessDialog = document.getElementById('registration-success-dialog');
+            registrationSuccessDialog.showModal();
+            document.getElementById('close-registration-success').addEventListener('click', () => {
+                registrationSuccessDialog.close();
             });
-            document.getElementById('add-attendee').disabled = cards.length >= 50;
-        }
-
-        document.getElementById('add-attendee').addEventListener('click', () => {
-            const index = nextAttendeeIndex++;
-            attendeeForms.insertAdjacentHTML(
-                'beforeend',
-                attendeeTemplate.innerHTML.replaceAll('__INDEX__', String(index)),
-            );
-            updateAttendeeForms();
-            attendeeForms.lastElementChild.querySelector('select').focus();
-        });
-
-        attendeeForms.addEventListener('click', (event) => {
-            const removeButton = event.target.closest('.remove-attendee');
-            if (!removeButton) return;
-            removeButton.closest('.attendee-form').remove();
-            updateAttendeeForms();
-        });
-
-        document.getElementById('open-email-dialog').addEventListener('click', () => {
-            emailInput.required = false;
-            const attendeesAreValid = form.reportValidity();
-            emailInput.required = true;
-            if (!attendeesAreValid) return;
-            emailDialog.showModal();
-            emailInput.focus();
-        });
-
-        document.getElementById('cancel-email').addEventListener('click', () => emailDialog.close());
-        document.getElementById('confirm-save').addEventListener('click', () => {
-            if (!form.reportValidity()) return;
-            emailDialog.close();
-            form.requestSubmit();
-        });
-
-        @if ($errors->has('email'))
-            emailInput.required = true;
-            emailDialog.showModal();
-            emailInput.focus();
-        @endif
-
-        updateAttendeeForms();
-    </script>
-@endpush
+        </script>
+    @endpush
+@endif

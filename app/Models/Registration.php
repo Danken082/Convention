@@ -12,6 +12,7 @@ class Registration extends Model
         'given_name',
         'middle_initial',
         'nickname',
+        'birthdate',
         'age',
         'gender',
         'shirt_size',
@@ -24,6 +25,7 @@ class Registration extends Model
     protected function casts(): array
     {
         return [
+            'birthdate' => 'date',
             'age' => 'integer',
         ];
     }

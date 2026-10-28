@@ -3,6 +3,10 @@
 return [
     'admin_email' => env('ADMIN_EMAIL'),
     'admin_export_key' => env('ADMIN_EXPORT_KEY'),
+    'allowed_emails' => array_values(array_filter(array_map(
+        static fn (string $email): string => strtolower(trim($email)),
+        explode(',', (string) env('REGISTRATION_ALLOWED_EMAILS', '')),
+    ))),
     'districts' => [
         'CD',
         'NELD',

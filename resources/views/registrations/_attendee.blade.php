@@ -1,6 +1,5 @@
-<section class="attendee-form" style="padding: 22px 0; border-bottom: 1px solid #e6ecef">
-    <div class="admin-header">
-        <h2 class="section-title attendee-heading" style="margin: 0">Attendee {{ is_numeric($index) ? $index + 1 : '' }}</h2>
+<section class="attendee-form">
+    <div class="attendee-form-header">
         <button class="secondary remove-attendee" type="button" aria-label="Remove attendee form" @if ($index === 0) hidden @endif>Remove</button>
     </div>
     <div class="fields">
@@ -25,8 +24,14 @@
             @error('attendees.'.$index.'.nickname') <p class="error-text">{{ $message }}</p> @enderror
         </div>
         <div class="field">
+            <label for="attendees_{{ $index }}_birthdate">Birthdate <span class="required">*</span></label>
+            <input id="attendees_{{ $index }}_birthdate" name="attendees[{{ $index }}][birthdate]" type="date" value="{{ $attendee['birthdate'] ?? '' }}" autocomplete="bday" max="{{ now()->subYears(16)->toDateString() }}" required>
+            <p class="hint">Attendees must be at least 16 years old to register.</p>
+            @error('attendees.'.$index.'.birthdate') <p class="error-text">{{ $message }}</p> @enderror
+        </div>
+        <div class="field">
             <label for="attendees_{{ $index }}_age">Age <span class="required">*</span></label>
-            <input id="attendees_{{ $index }}_age" name="attendees[{{ $index }}][age]" type="number" value="{{ $attendee['age'] ?? '' }}" min="1" max="120" required>
+            <input id="attendees_{{ $index }}_age" name="attendees[{{ $index }}][age]" type="number" value="{{ $attendee['age'] ?? '' }}" min="16" max="120" required>
             @error('attendees.'.$index.'.age') <p class="error-text">{{ $message }}</p> @enderror
         </div>
         <div class="field">

@@ -29,6 +29,7 @@ class GoogleSheetsAppender
         'Email',
         'Proof of payment',
         'Submitted at',
+        'Birthdate',
     ];
 
     public function appendRegistrations(Collection $registrations): void
@@ -54,9 +55,27 @@ class GoogleSheetsAppender
             $sheetTitle = $this->sheetTitle($spreadsheetId, $tabId, $accessToken);
             $this->ensureHeaders($spreadsheetId, $sheetTitle, $accessToken);
             $this->appendRows($spreadsheetId, $sheetTitle, $registrations, $accessToken);
-        } catch (ConnectionException|RequestException $exception) {
+        } catch (ConnectionException $exception) {
             throw new GoogleSheetsException('Google Sheets could not complete the requested operation.', previous: $exception);
+        } catch (RequestException $exception) {
+            throw new GoogleSheetsException($this->requestFailureMessage($exception), previous: $exception);
         }
+    }
+
+    private function requestFailureMessage(RequestException $exception): string
+    {
+        $response = $exception->response;
+        $message = $response->json('error.message');
+
+        if (! is_string($message) || $message === '') {
+            $message = trim($response->body());
+        }
+
+        if ($message === '') {
+            $message = 'No error details were returned by Google.';
+        }
+
+        return sprintf('Google Sheets API returned HTTP %d: %s', $response->status(), $message);
     }
 
     private function readCredentials(string $path): array
@@ -139,7 +158,7 @@ class GoogleSheetsAppender
 
     private function sheetTitle(string $spreadsheetId, string $tabId, string $accessToken): string
     {
-        $response = Http::withToken($accessToken)
+        $response = Http::acceptJson()->withToken($accessToken)
             ->get(self::API_BASE_URL.'/spreadsheets/'.rawurlencode($spreadsheetId), [
                 'fields' => 'sheets(properties(sheetId,title))',
             ])
@@ -158,16 +177,25 @@ class GoogleSheetsAppender
 
     private function ensureHeaders(string $spreadsheetId, string $sheetTitle, string $accessToken): void
     {
-        $range = $this->quotedRange($sheetTitle, 'A1:M1');
-        $response = Http::withToken($accessToken)
+        $range = $this->quotedRange($sheetTitle, 'A1:N1');
+        $response = Http::acceptJson()->withToken($accessToken)
             ->get($this->valuesUrl($spreadsheetId, $range))
             ->throw();
 
-        if ($response->json('values.0')) {
+        $existingHeaders = $response->json('values.0');
+        if ($existingHeaders) {
+            if (! in_array('Birthdate', $existingHeaders, true)) {
+                Http::acceptJson()->withToken($accessToken)
+                    ->put($this->valuesUrl($spreadsheetId, $this->quotedRange($sheetTitle, 'N1:N1')).'?valueInputOption=RAW', [
+                        'values' => [['Birthdate']],
+                    ])
+                    ->throw();
+            }
+
             return;
         }
 
-        Http::withToken($accessToken)
+        Http::acceptJson()->withToken($accessToken)
             ->put($this->valuesUrl($spreadsheetId, $range).'?valueInputOption=RAW', [
                 'values' => [self::HEADERS],
             ])
@@ -194,12 +222,13 @@ class GoogleSheetsAppender
             $registration->email,
             basename($registration->proof_of_payment_path),
             $registration->created_at->toDateTimeString(),
+            $registration->birthdate?->format('Y-m-d') ?? '',
         ])->all();
 
-        $range = $this->quotedRange($sheetTitle, 'A:M');
-        Http::withToken($accessToken)
+        $range = $this->quotedRange($sheetTitle, 'A:N');
+        Http::acceptJson()->withToken($accessToken)
             ->post(
-                $this->valuesUrl($spreadsheetId, $range).'?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
+                $this->valuesUrl($spreadsheetId, $range).':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
                 ['values' => $rows],
             )
             ->throw();

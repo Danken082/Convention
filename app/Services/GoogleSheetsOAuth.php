@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Cache;
@@ -50,15 +51,17 @@ class GoogleSheetsOAuth
         $client = $this->oauthClient();
 
         try {
-            $response = Http::asForm()->post($client['token_uri'], [
+            $response = Http::acceptJson()->asForm()->post($client['token_uri'], [
                 'code' => $authorizationCode,
                 'client_id' => $client['client_id'],
                 'client_secret' => $client['client_secret'],
                 'redirect_uri' => $redirectUri,
                 'grant_type' => 'authorization_code',
             ])->throw();
-        } catch (ConnectionException|RequestException $exception) {
+        } catch (ConnectionException $exception) {
             throw new GoogleSheetsException('Google could not complete OAuth authorization.', previous: $exception);
+        } catch (RequestException $exception) {
+            throw new GoogleSheetsException($this->requestFailureMessage($exception), previous: $exception);
         }
 
         $refreshToken = $response->json('refresh_token');
@@ -101,7 +104,7 @@ class GoogleSheetsOAuth
                 512,
                 JSON_THROW_ON_ERROR,
             );
-        } catch (JsonException|\Illuminate\Contracts\Encryption\DecryptException $exception) {
+        } catch (JsonException|DecryptException $exception) {
             throw new GoogleSheetsException('The saved Google authorization is unreadable. Reconnect Google Sheets.', previous: $exception);
         }
 
@@ -113,14 +116,16 @@ class GoogleSheetsOAuth
 
         return Cache::remember($this->cacheKey($client['client_id']), now()->addMinutes(50), function () use ($client, $tokenData): string {
             try {
-                $response = Http::asForm()->post($client['token_uri'], [
+                $response = Http::acceptJson()->asForm()->post($client['token_uri'], [
                     'client_id' => $client['client_id'],
                     'client_secret' => $client['client_secret'],
                     'refresh_token' => $tokenData['refresh_token'],
                     'grant_type' => 'refresh_token',
                 ])->throw();
-            } catch (ConnectionException|RequestException $exception) {
+            } catch (ConnectionException $exception) {
                 throw new GoogleSheetsException('Google could not refresh its authorization. Reconnect Google Sheets.', previous: $exception);
+            } catch (RequestException $exception) {
+                throw new GoogleSheetsException($this->requestFailureMessage($exception).' Reconnect Google Sheets.', previous: $exception);
             }
 
             $accessToken = $response->json('access_token');
@@ -181,5 +186,22 @@ class GoogleSheetsOAuth
     private function cacheKey(string $clientId): string
     {
         return 'google_sheets_token_'.hash('sha256', $clientId);
+    }
+
+    private function requestFailureMessage(RequestException $exception): string
+    {
+        $response = $exception->response;
+        $message = $response->json('error_description')
+            ?? $response->json('error.message');
+
+        if (! is_string($message) || $message === '') {
+            $message = trim($response->body());
+        }
+
+        if ($message === '') {
+            $message = 'No error details were returned by Google.';
+        }
+
+        return sprintf('Google OAuth returned HTTP %d: %s', $response->status(), $message);
     }
 }
