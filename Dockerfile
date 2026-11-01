@@ -1,4 +1,4 @@
-FROM php:8.3-apache
+FROM php:8.4-apache
 
 RUN apt-get update && apt-get install -y \
     git \
@@ -10,15 +10,15 @@ RUN apt-get update && apt-get install -y \
     libzip-dev \
     libsqlite3-dev \
     && docker-php-ext-configure gd \
-        --with-freetype \
-        --with-jpeg \
+    --with-freetype \
+    --with-jpeg \
     && docker-php-ext-install -j"$(nproc)" \
-        bcmath \
-        gd \
-        intl \
-        pcntl \
-        pdo_sqlite \
-        zip \
+    bcmath \
+    gd \
+    intl \
+    pcntl \
+    pdo_sqlite \
+    zip \
     && a2enmod rewrite \
     && rm -rf /var/lib/apt/lists/*
 
@@ -39,7 +39,7 @@ RUN sed -i 's|DocumentRoot /var/www/html|DocumentRoot /var/www/html/public|' \
 RUN printf '<Directory /var/www/html/public>\n\
     AllowOverride All\n\
     Require all granted\n\
-</Directory>\n' \
+    </Directory>\n' \
     > /etc/apache2/conf-available/laravel.conf \
     && a2enconf laravel
 
