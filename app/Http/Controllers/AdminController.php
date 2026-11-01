@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Registration;
+use App\Services\AccessEmailService;
 use App\Services\GoogleSheetsAppender;
 use App\Services\GoogleSheetsException;
 use App\Services\GoogleSheetsOAuth;
@@ -11,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Str;
 use Illuminate\View\View;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -42,7 +44,7 @@ class AdminController extends Controller
         return redirect()->route('admin.index');
     }
 
-    public function index(): View
+    public function index(AccessEmailService $accessEmailService): View
     {
         return view('admin.index', [
             'registrations' => Registration::query()->latest()->paginate(25),
@@ -50,7 +52,63 @@ class AdminController extends Controller
             'googleSheetsOAuthConfigured' => app(GoogleSheetsOAuth::class)->isOAuthClientConfigured(),
             'googleSheetsConnected' => app(GoogleSheetsOAuth::class)->isConnected(),
             'googleSheetsRedirectUri' => config('services.google_sheets.redirect_uri'),
+            'accessEmails' => $accessEmailService->all(),
+            'databaseAccessEmails' => $accessEmailService->databaseEmails(),
         ]);
+    }
+
+    public function addAccessEmail(Request $request, AccessEmailService $accessEmailService): RedirectResponse
+    {
+        $input = $request->input('emails', $request->input('email'));
+        $emails = is_array($input)
+            ? $input
+            : preg_split('/[\r\n,]+/', (string) $input, -1, PREG_SPLIT_NO_EMPTY);
+        $emails = array_values(array_map(
+            static fn (mixed $email): string => is_string($email) ? strtolower(trim($email)) : '',
+            $emails ?: [],
+        ));
+
+        $validated = Validator::make(['emails' => $emails], [
+            'emails' => ['required', 'array', 'min:1'],
+            'emails.*' => ['required', 'email', 'max:255'],
+        ])->validate();
+        $addedCount = $accessEmailService->addMany($validated['emails']);
+
+        if ($addedCount === 0) {
+            return back()->with('accessEmailError', 'All entered emails are already approved.');
+        }
+
+        $message = $addedCount === 1
+            ? 'Access email added.'
+            : $addedCount.' access emails added.';
+
+        return back()->with('accessEmailSuccess', $message);
+    }
+
+    public function removeAccessEmails(Request $request, AccessEmailService $accessEmailService): RedirectResponse
+    {
+        $validated = $request->validate([
+            'emails' => ['required', 'array', 'min:1'],
+            'emails.*' => ['required', 'email', 'max:255'],
+        ]);
+
+        $removedCount = $accessEmailService->removeMany($validated['emails']);
+        if ($removedCount === 0) {
+            return back()->with('accessEmailError', 'No selected access emails could be removed.');
+        }
+
+        return back()->with('accessEmailSuccess', $removedCount === 1
+            ? 'Access email removed.'
+            : $removedCount.' access emails removed.');
+    }
+
+    public function removeAccessEmail(string $email, AccessEmailService $accessEmailService): RedirectResponse
+    {
+        if (! $accessEmailService->remove($email)) {
+            return back()->with('accessEmailError', 'That access email cannot be removed.');
+        }
+
+        return back()->with('accessEmailSuccess', 'Access email removed.');
     }
 
     public function connectGoogleSheets(Request $request, GoogleSheetsOAuth $googleSheetsOAuth): RedirectResponse

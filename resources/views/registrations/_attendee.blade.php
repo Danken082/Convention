@@ -25,8 +25,8 @@
         </div>
         <div class="field">
             <label for="attendees_{{ $index }}_birthdate">Birthdate <span class="required">*</span></label>
-            <input id="attendees_{{ $index }}_birthdate" name="attendees[{{ $index }}][birthdate]" type="date" value="{{ $attendee['birthdate'] ?? '' }}" autocomplete="bday" max="{{ now()->subYears(16)->toDateString() }}" required>
-            <p class="hint">Attendees must be at least 16 years old to register.</p>
+            <input id="attendees_{{ $index }}_birthdate" name="attendees[{{ $index }}][birthdate]" type="date" value="{{ $attendee['birthdate'] ?? '' }}" autocomplete="bday" max="2010-07-22" required>
+            <p class="hint">Attendees must be born before July 23, 2010 and be at least 16 years old.</p>
             @error('attendees.'.$index.'.birthdate') <p class="error-text">{{ $message }}</p> @enderror
         </div>
         <div class="field">
@@ -44,15 +44,25 @@
             </select>
             @error('attendees.'.$index.'.gender') <p class="error-text">{{ $message }}</p> @enderror
         </div>
+        @php
+            $shirtSize = $attendee['shirt_size'] ?? '';
+            $shirtSizeOther = $attendee['shirt_size_other'] ?? '';
+            $shirtSizeIsOther = $shirtSize === 'Other';
+        @endphp
         <div class="field">
             <label for="attendees_{{ $index }}_shirt_size">Shirt size <span class="required">*</span></label>
             <select id="attendees_{{ $index }}_shirt_size" name="attendees[{{ $index }}][shirt_size]" required>
                 <option value="">Choose a size</option>
                 @foreach ($shirtSizes as $size)
-                    <option value="{{ $size }}" @selected(($attendee['shirt_size'] ?? '') === $size)>{{ $size }}</option>
+                    <option value="{{ $size }}" @selected($shirtSize === $size)>{{ $size }}</option>
                 @endforeach
             </select>
             @error('attendees.'.$index.'.shirt_size') <p class="error-text">{{ $message }}</p> @enderror
+        </div>
+        <div class="field shirt-size-other-field" @if (! $shirtSizeIsOther) hidden @endif>
+            <label for="attendees_{{ $index }}_shirt_size_other">Custom shirt size <span class="required">*</span></label>
+            <input id="attendees_{{ $index }}_shirt_size_other" name="attendees[{{ $index }}][shirt_size_other]" value="{{ $shirtSizeOther }}" maxlength="100" @disabled(! $shirtSizeIsOther) @required($shirtSizeIsOther)>
+            @error('attendees.'.$index.'.shirt_size_other') <p class="error-text">{{ $message }}</p> @enderror
         </div>
         <div class="field">
             <label for="attendees_{{ $index }}_division">Division <span class="required">*</span></label>

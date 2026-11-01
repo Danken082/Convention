@@ -11,7 +11,20 @@
                 <h1>Registrations</h1>
             </div>
         <div class="admin-actions">
-            @if ($googleSheetsOAuthConfigured)
+                <details class="access-email-menu">
+                    <summary class="button secondary">Add access email</summary>
+                    <form action="{{ route('admin.access-emails.store') }}" method="POST">
+                        @csrf
+                        <label for="access-emails">Approved email address(es)</label>
+                        <textarea id="access-emails" name="emails" rows="4" placeholder="one@example.com&#10;two@example.com" required></textarea>
+                        <p class="hint">Enter one email per line or separate emails with commas.</p>
+                        @error('emails') <p class="error-text">{{ $message }}</p> @enderror
+                        @error('emails.*') <p class="error-text">{{ $message }}</p> @enderror
+                        <button type="submit">Add email(s)</button>
+                    </form>
+                </details>
+              
+                @if ($googleSheetsOAuthConfigured)
                 <a class="button secondary" href="{{ route('admin.google-sheets.connect') }}">
                     {{ $googleSheetsConnected ? 'Reconnect Google Sheets' : 'Connect Google Sheets' }}
                 </a>
@@ -29,6 +42,11 @@
                 </form>
             @endif
             <a class="button" href="{{ route('admin.export') }}">Download Excel</a>
+              @if ($accessEmails !== [])
+                    <button class="secondary" type="button" onclick="document.getElementById('access-emails-dialog').showModal()">
+                        Approved emails ({{ count($accessEmails) }})
+                    </button>
+                @endif
             <form action="{{ route('admin.logout') }}" method="POST">
                 @csrf
                 <button class="secondary" type="submit">Sign out</button>
@@ -43,6 +61,12 @@
         @if (session('syncError'))
             <div class="notice warning" role="alert">{{ session('syncError') }}</div>
         @endif
+        @if (session('accessEmailSuccess'))
+            <div class="notice success" role="status">{{ session('accessEmailSuccess') }}</div>
+        @endif
+        @if (session('accessEmailError'))
+            <div class="notice warning" role="alert">{{ session('accessEmailError') }}</div>
+        @endif
         <p class="hint" style="margin: 0 0 14px">
             Showing {{ $registrations->total() }} registration(s).
             @if ($pendingSheetSyncCount > 0)
@@ -50,7 +74,8 @@
             @else
                 All registrations are synced to Google Sheets.
             @endif
-            Payment proofs are only accessible to signed-in admins.
+            A submission's proof appears once in Google Sheets as “See proof of payment (district name)”. JPG/PNG links are non-expiring;
+            anyone with a link can view them. PDF proofs remain private and are listed by filename.
         </p>
         <div class="table-wrap">
             <table>
@@ -89,4 +114,28 @@
         <div class="pagination">{{ $registrations->links() }}</div>
     </section>
     </div>
+
+    @if ($accessEmails !== [])
+        <dialog id="access-emails-dialog" aria-labelledby="access-emails-title">
+            <h2 id="access-emails-title">Approved emails</h2>
+            <p>Select one or more database-managed emails to remove. Configured emails cannot be removed here.</p>
+            <form action="{{ route('admin.access-emails.destroy-many') }}" method="POST">
+                @csrf
+                <div class="access-email-options">
+                    @foreach ($accessEmails as $accessEmail)
+                        <label>
+                            @if (in_array($accessEmail, $databaseAccessEmails, true))
+                                <input name="emails[]" type="checkbox" value="{{ $accessEmail }}">
+                            @endif
+                            <span>{{ $accessEmail }}</span>
+                        </label>
+                    @endforeach
+                </div>
+                <div class="dialog-actions">
+                    <button class="secondary" type="submit" formmethod="dialog">Close</button>
+                    <button type="submit">Remove selected</button>
+                </div>
+            </form>
+        </dialog>
+    @endif
 @endsection

@@ -154,6 +154,28 @@
             draftSaveTimeout = window.setTimeout(() => saveDraft(), 350);
         }
 
+        function updateOtherShirtSize(attendeeForm) {
+            const shirtSize = attendeeForm.querySelector('select[name$="[shirt_size]"]');
+            const otherField = attendeeForm.querySelector('.shirt-size-other-field');
+            const otherInput = otherField?.querySelector('input');
+            const isOther = shirtSize?.value === 'Other';
+
+            if (!otherField || !otherInput) {
+                return;
+            }
+
+            otherField.hidden = !isOther;
+            otherInput.disabled = !isOther;
+            otherInput.required = isOther;
+        }
+
+        attendeeForms.querySelectorAll('.attendee-form').forEach(updateOtherShirtSize);
+        attendeeForms.addEventListener('change', (event) => {
+            if (event.target.matches('select[name$="[shirt_size]"]')) {
+                updateOtherShirtSize(event.target.closest('.attendee-form'));
+            }
+        });
+
         registrationForm.addEventListener('input', scheduleDraftSave);
         registrationForm.addEventListener('change', scheduleDraftSave);
         window.addEventListener('pagehide', () => {

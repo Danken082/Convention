@@ -8,6 +8,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\URL;
 use JsonException;
 use OpenSSLAsymmetricKey;
 
@@ -52,9 +53,14 @@ class GoogleSheetsAppender
             $accessToken = isset($credentials['web'])
                 ? app(GoogleSheetsOAuth::class)->accessToken()
                 : $this->accessToken($credentials);
-            $sheetTitle = $this->sheetTitle($spreadsheetId, $tabId, $accessToken);
-            $this->ensureHeaders($spreadsheetId, $sheetTitle, $accessToken);
-            $this->appendRows($spreadsheetId, $sheetTitle, $registrations, $accessToken);
+            $sheet = $this->sheetProperties($spreadsheetId, $tabId, $accessToken);
+            $this->ensureHeaders($spreadsheetId, $sheet['title'], $accessToken);
+            $this->appendRows(
+                $spreadsheetId,
+                $sheet['sheetId'],
+                $registrations,
+                $accessToken,
+            );
         } catch (ConnectionException $exception) {
             throw new GoogleSheetsException('Google Sheets could not complete the requested operation.', previous: $exception);
         } catch (RequestException $exception) {
@@ -156,7 +162,10 @@ class GoogleSheetsAppender
         });
     }
 
-    private function sheetTitle(string $spreadsheetId, string $tabId, string $accessToken): string
+    /**
+     * @return array{sheetId: int, title: string}
+     */
+    private function sheetProperties(string $spreadsheetId, string $tabId, string $accessToken): array
     {
         $response = Http::acceptJson()->withToken($accessToken)
             ->get(self::API_BASE_URL.'/spreadsheets/'.rawurlencode($spreadsheetId), [
@@ -166,9 +175,13 @@ class GoogleSheetsAppender
 
         foreach ($response->json('sheets', []) as $sheet) {
             $properties = $sheet['properties'] ?? [];
-            if ((string) ($properties['sheetId'] ?? '') === $tabId
+            if (is_int($properties['sheetId'] ?? null)
+                && (string) $properties['sheetId'] === $tabId
                 && is_string($properties['title'] ?? null)) {
-                return $properties['title'];
+                return [
+                    'sheetId' => $properties['sheetId'],
+                    'title' => $properties['title'],
+                ];
             }
         }
 
@@ -204,34 +217,92 @@ class GoogleSheetsAppender
 
     private function appendRows(
         string $spreadsheetId,
-        string $sheetTitle,
+        int $sheetId,
         Collection $registrations,
         string $accessToken,
     ): void {
-        $rows = $registrations->map(fn (Registration $registration): array => [
-            $registration->district,
-            $registration->surname,
-            $registration->given_name,
-            $registration->middle_initial ?? '',
-            $registration->nickname ?? '',
-            (string) $registration->age,
-            $registration->gender,
-            $registration->shirt_size,
-            $registration->division,
-            $registration->ministry,
-            $registration->email,
-            basename($registration->proof_of_payment_path),
-            $registration->created_at->toDateTimeString(),
-            $registration->birthdate?->format('Y-m-d') ?? '',
-        ])->all();
+        $proofPaths = $registrations->pluck('proof_of_payment_path')->unique()->all();
+        $previouslySyncedProofPaths = Registration::query()
+            ->whereIn('proof_of_payment_path', $proofPaths)
+            ->whereNotNull('google_sheets_synced_at')
+            ->pluck('proof_of_payment_path')
+            ->flip()
+            ->all();
+        $includedProofPaths = [];
 
-        $range = $this->quotedRange($sheetTitle, 'A:N');
+        $rows = $registrations->map(function (Registration $registration) use (
+            &$includedProofPaths,
+            $previouslySyncedProofPaths,
+        ): array {
+            $values = [
+                $registration->district,
+                $registration->surname,
+                $registration->given_name,
+                $registration->middle_initial ?? '',
+                $registration->nickname ?? '',
+                (string) $registration->age,
+                $registration->gender,
+                $registration->shirt_size,
+                $registration->division,
+                $registration->ministry,
+                $registration->email,
+                basename($registration->proof_of_payment_path),
+                $registration->created_at->toDateTimeString(),
+                $registration->birthdate?->format('Y-m-d') ?? '',
+            ];
+            $proofPath = $registration->proof_of_payment_path;
+            if (isset($previouslySyncedProofPaths[$proofPath]) || isset($includedProofPaths[$proofPath])) {
+                $values[11] = ['stringValue' => ''];
+            } else {
+                $includedProofPaths[$proofPath] = true;
+                $values[11] = $this->proofCellValue($registration);
+            }
+
+            return [
+                'values' => array_map(
+                    static fn (string|array $value): array => [
+                        'userEnteredValue' => is_array($value)
+                            ? $value
+                            : ['stringValue' => $value],
+                    ],
+                    $values,
+                ),
+            ];
+        })->all();
+
         Http::acceptJson()->withToken($accessToken)
-            ->post(
-                $this->valuesUrl($spreadsheetId, $range).':append?valueInputOption=RAW&insertDataOption=INSERT_ROWS',
-                ['values' => $rows],
-            )
+            ->post(self::API_BASE_URL.'/spreadsheets/'.rawurlencode($spreadsheetId).':batchUpdate', [
+                'requests' => [[
+                    'appendCells' => [
+                        'sheetId' => $sheetId,
+                        'rows' => $rows,
+                        'fields' => 'userEnteredValue',
+                    ],
+                ]],
+            ])
             ->throw();
+    }
+
+    private function proofCellValue(Registration $registration): array
+    {
+        $proofPath = $registration->proof_of_payment_path;
+        $proofExtension = strtolower(pathinfo($proofPath, PATHINFO_EXTENSION));
+
+        if (! in_array($proofExtension, ['jpg', 'jpeg', 'png'], true)) {
+            return ['stringValue' => basename($proofPath)];
+        }
+
+        $imageUrl = rtrim((string) config('app.url'), '/').URL::signedRoute(
+            'registrations.proof-image',
+            ['registration' => $registration],
+            absolute: false,
+        );
+
+        $linkText = 'See proof of payment ('.str_replace('"', '""', $registration->district).')';
+
+        return [
+            'formulaValue' => '=HYPERLINK("'.str_replace('"', '""', $imageUrl).'","'.$linkText.'")',
+        ];
     }
 
     private function valuesUrl(string $spreadsheetId, string $range): string

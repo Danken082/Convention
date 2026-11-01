@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Mail\RegistrationReceived;
 use App\Models\Registration;
+use App\Services\AccessEmailService;
 use App\Services\GoogleSheetsAppender;
 use App\Services\GoogleSheetsException;
 use Illuminate\Database\Eloquent\Collection;
@@ -16,22 +17,26 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\Mailer\Exception\TransportExceptionInterface;
 use Throwable;
 
 class RegistrationController extends Controller
 {
+    public function __construct(private AccessEmailService $accessEmailService) {}
+
     public function create(): View
     {
         $verifiedEmail = session('registration_verified_email');
-        if (! in_array($verifiedEmail, config('registrations.allowed_emails', []), true)) {
+        $allowedEmails = $this->accessEmailService->all();
+        if (! in_array($verifiedEmail, $allowedEmails, true)) {
             session()->forget('registration_verified_email');
             $verifiedEmail = null;
         }
 
         return view('registrations.create', [
             'verifiedEmail' => $verifiedEmail,
-            'allowedEmailsConfigured' => config('registrations.allowed_emails') !== [],
+            'allowedEmailsConfigured' => $allowedEmails !== [],
         ]);
     }
 
@@ -39,7 +44,7 @@ class RegistrationController extends Controller
     {
         $verifiedEmail = session('registration_verified_email');
         if (! is_string($verifiedEmail)
-            || ! in_array($verifiedEmail, config('registrations.allowed_emails', []), true)) {
+            || ! $this->accessEmailService->isAllowed($verifiedEmail)) {
             session()->forget('registration_verified_email');
 
             return redirect()->route('registrations.create');
@@ -54,11 +59,30 @@ class RegistrationController extends Controller
         ]);
     }
 
+    public function proofImage(Registration $registration): BinaryFileResponse
+    {
+        $proofPath = $registration->proof_of_payment_path;
+        if (! Storage::disk('local')->exists($proofPath)) {
+            abort(404);
+        }
+
+        $imagePath = Storage::disk('local')->path($proofPath);
+        $imageInfo = @getimagesize($imagePath);
+        if ($imageInfo === false || ! in_array($imageInfo[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG], true)) {
+            abort(404);
+        }
+
+        return response()->file($imagePath, [
+            'Content-Type' => $imageInfo[2] === IMAGETYPE_JPEG ? 'image/jpeg' : 'image/png',
+            'Cache-Control' => 'public, max-age=3600',
+        ]);
+    }
+
     public function saveDraft(Request $request): JsonResponse
     {
         $verifiedEmail = $request->session()->get('registration_verified_email');
         if (! is_string($verifiedEmail)
-            || ! in_array($verifiedEmail, config('registrations.allowed_emails', []), true)) {
+            || ! $this->accessEmailService->isAllowed($verifiedEmail)) {
             return response()->json([
                 'message' => 'Verify an approved email address before saving a registration draft.',
             ], 403);
@@ -67,7 +91,7 @@ class RegistrationController extends Controller
         $validated = $request->validate([
             'district' => ['nullable', 'string', Rule::in(config('registrations.districts'))],
             'attendees' => ['required', 'array', 'min:1', 'max:50'],
-            'attendees.*' => ['required', 'array:surname,given_name,middle_initial,nickname,birthdate,age,gender,shirt_size,division,ministry'],
+            'attendees.*' => ['required', 'array:surname,given_name,middle_initial,nickname,birthdate,age,gender,shirt_size,shirt_size_other,division,ministry'],
             'attendees.*.surname' => ['nullable', 'string', 'max:100'],
             'attendees.*.given_name' => ['nullable', 'string', 'max:100'],
             'attendees.*.middle_initial' => ['nullable', 'string', 'max:10'],
@@ -76,6 +100,7 @@ class RegistrationController extends Controller
             'attendees.*.age' => ['nullable', 'string', 'max:3'],
             'attendees.*.gender' => ['nullable', 'string', Rule::in(config('registrations.genders'))],
             'attendees.*.shirt_size' => ['nullable', 'string', Rule::in(config('registrations.shirt_sizes'))],
+            'attendees.*.shirt_size_other' => ['nullable', 'string', 'max:100'],
             'attendees.*.division' => ['nullable', 'string', 'max:150'],
             'attendees.*.ministry' => ['nullable', 'string', 'max:150'],
         ]);
@@ -96,7 +121,7 @@ class RegistrationController extends Controller
         }
 
         $validated = $request->validate([
-            'email' => ['required', 'email', 'max:255', Rule::in(config('registrations.allowed_emails', []))],
+            'email' => ['required', 'email', 'max:255', Rule::in($this->accessEmailService->all())],
         ], [
             'email.in' => 'This email address is not approved for registration.',
         ]);
@@ -121,7 +146,7 @@ class RegistrationController extends Controller
         if (! is_string($email)
             || ! is_string($verifiedEmail)
             || $email !== $verifiedEmail
-            || ! in_array($verifiedEmail, config('registrations.allowed_emails', []), true)) {
+            || ! $this->accessEmailService->isAllowed($verifiedEmail)) {
             $request->session()->forget('registration_verified_email');
             $request->session()->forget('registration_draft');
 
@@ -134,7 +159,7 @@ class RegistrationController extends Controller
             'district' => ['required', Rule::in(config('registrations.districts'))],
             'proof_of_payment' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf', 'max:10240'],
             'attendees' => ['required', 'array', 'min:1', 'max:50'],
-            'attendees.*' => ['required', 'array:surname,given_name,middle_initial,nickname,birthdate,age,gender,shirt_size,division,ministry'],
+            'attendees.*' => ['required', 'array:surname,given_name,middle_initial,nickname,birthdate,age,gender,shirt_size,shirt_size_other,division,ministry'],
             'attendees.*.surname' => ['required', 'string', 'max:100'],
             'attendees.*.given_name' => ['required', 'string', 'max:100'],
             'attendees.*.middle_initial' => ['nullable', 'string', 'max:10'],
@@ -142,16 +167,17 @@ class RegistrationController extends Controller
             'attendees.*.birthdate' => [
                 'required',
                 'date_format:Y-m-d',
-                'before_or_equal:'.now()->subYears(16)->toDateString(),
+                'before:2010-07-23',
             ],
             'attendees.*.age' => ['required', 'integer', 'between:16,120'],
             'attendees.*.gender' => ['required', Rule::in(config('registrations.genders'))],
             'attendees.*.shirt_size' => ['required', Rule::in(config('registrations.shirt_sizes'))],
+            'attendees.*.shirt_size_other' => ['nullable', 'required_if:attendees.*.shirt_size,Other', 'string', 'max:100'],
             'attendees.*.division' => ['required', 'string', 'max:150'],
             'attendees.*.ministry' => ['required', 'string', 'max:150'],
-            'email' => ['required', 'email', 'max:255', Rule::in(config('registrations.allowed_emails', []))],
+            'email' => ['required', 'email', 'max:255', Rule::in($this->accessEmailService->all())],
         ], [
-            'attendees.*.birthdate.before_or_equal' => 'Each attendee must be at least 16 years old to register.',
+            'attendees.*.birthdate.before' => 'Attendees born on or after July 23, 2010 cannot register.',
             'attendees.*.age.between' => 'Each attendee must be at least 16 years old to register.',
         ]);
 
@@ -168,10 +194,15 @@ class RegistrationController extends Controller
                 $registrations = new Collection;
 
                 foreach ($validated['attendees'] as $attendee) {
+                    $shirtSize = $attendee['shirt_size'] === 'Other'
+                        ? trim($attendee['shirt_size_other'])
+                        : $attendee['shirt_size'];
+
                     $registrations->push(Registration::create([
                         ...$attendee,
                         'district' => $validated['district'],
                         'email' => $validated['email'],
+                        'shirt_size' => $shirtSize,
                         'proof_of_payment_path' => $storedProofs[0],
                     ]));
                 }
@@ -210,16 +241,15 @@ class RegistrationController extends Controller
             $registrations->all(),
         );
 
-        foreach ($registrations as $registration) {
-            if (is_string($adminEmail) && $adminEmail !== '') {
-                $this->sendNotification(
-                    $registration,
-                    $adminEmail,
-                    true,
-                    'admin notification',
-                    $emailFailures,
-                );
-            }
+        if (is_string($adminEmail) && $adminEmail !== '') {
+            $this->sendNotification(
+                $registrations->firstOrFail(),
+                $adminEmail,
+                true,
+                'admin notification',
+                $emailFailures,
+                $registrations->all(),
+            );
         }
 
         if (! is_string($adminEmail) || $adminEmail === '') {

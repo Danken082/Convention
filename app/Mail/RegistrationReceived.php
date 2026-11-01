@@ -3,7 +3,6 @@
 namespace App\Mail;
 
 use App\Models\Registration;
-use App\Services\RegistrationWorkbook;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Attachment;
 use Illuminate\Mail\Mailable;
@@ -54,13 +53,6 @@ class RegistrationReceived extends Mailable
             ];
         }
 
-        return [
-            Attachment::fromData(
-                fn (): string => app(RegistrationWorkbook::class)->toXlsx(
-                    $this->registrations ?: [$this->registration],
-                ),
-                'convention-registrations.xlsx',
-            )->withMime('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
-        ];
+        return [];
     }
 }

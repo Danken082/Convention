@@ -19,7 +19,7 @@ On Windows, make sure `extension=gd` is enabled in the `php.ini` used by the com
    php artisan key:generate
    ```
 
-2. Set `ADMIN_EMAIL` to the address that should receive new registrations. Set `REGISTRATION_ALLOWED_EMAILS` to a comma-separated list of email addresses allowed to register (for example, `REGISTRATION_ALLOWED_EMAILS=attendee@example.com,another@example.com`). Only those addresses can pass the email step; the address is also checked on the server when registration is submitted. This allowlist does not send an email verification code.
+2. Set `ADMIN_EMAIL` to the address that should receive new registrations. Set `REGISTRATION_ALLOWED_EMAILS` to a comma-separated list of email addresses allowed to register (for example, `REGISTRATION_ALLOWED_EMAILS=attendee@example.com,another@example.com`). Only those addresses can pass the email step; the address is also checked on the server when registration is submitted. This allowlist does not send an email verification code. After signing in to the admin dashboard, use **Add access email** to add more approved addresses without changing `.env`.
 
    Configure Google Sheets access:
 

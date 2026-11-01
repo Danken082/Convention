@@ -41,5 +41,5 @@ return [
         'NEMD',
     ],
     'genders' => ['Female', 'Male', 'Prefer not to say'],
-    'shirt_sizes' => ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'],
+    'shirt_sizes' => ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', 'Other'],
 ];

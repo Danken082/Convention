@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Mail\RegistrationReceived;
+use App\Models\AllowedEmail;
 use App\Models\Registration;
 use App\Services\GoogleSheetsOAuth;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Tests\TestCase;
 
@@ -107,14 +109,28 @@ class RegistrationTest extends TestCase
     public function test_attendees_under_16_cannot_register(): void
     {
         $data = $this->registrationData();
-        $data['attendees'][0]['birthdate'] = now()->subYears(15)->toDateString();
+        $data['attendees'][0]['birthdate'] = '2010-07-23';
 
         $this->post(route('registrations.store'), $data)
             ->assertSessionHasErrors([
-                'attendees.0.birthdate' => 'Each attendee must be at least 16 years old to register.',
+                'attendees.0.birthdate' => 'Attendees born on or after July 23, 2010 cannot register.',
             ]);
 
         $this->assertDatabaseCount('registrations', 0);
+    }
+
+    public function test_birthdate_before_july_23_2010_can_register_at_age_16(): void
+    {
+        Mail::fake();
+        $data = $this->registrationData();
+        $data['attendees'][0]['birthdate'] = '2010-07-22';
+        $data['attendees'][0]['age'] = '16';
+
+        $this->post(route('registrations.store'), $data)
+            ->assertRedirect(route('registrations.create'))
+            ->assertSessionHas('success', '1 attendee registration(s) saved.');
+
+        $this->assertDatabaseCount('registrations', 1);
     }
 
     public function test_attendee_age_must_be_at_least_16(): void
@@ -126,6 +142,31 @@ class RegistrationTest extends TestCase
             ->assertSessionHasErrors([
                 'attendees.0.age' => 'Each attendee must be at least 16 years old to register.',
             ]);
+
+        $this->assertDatabaseCount('registrations', 0);
+    }
+
+    public function test_attendee_can_submit_a_custom_shirt_size(): void
+    {
+        Mail::fake();
+        $data = $this->registrationData();
+        $data['attendees'][0]['shirt_size'] = 'Other';
+        $data['attendees'][0]['shirt_size_other'] = 'Youth Large';
+
+        $this->post(route('registrations.store'), $data)
+            ->assertRedirect(route('registrations.create'));
+
+        $this->assertDatabaseHas('registrations', ['shirt_size' => 'Youth Large']);
+    }
+
+    public function test_other_shirt_size_requires_a_custom_value(): void
+    {
+        $data = $this->registrationData();
+        $data['attendees'][0]['shirt_size'] = 'Other';
+        $data['attendees'][0]['shirt_size_other'] = '';
+
+        $this->post(route('registrations.store'), $data)
+            ->assertSessionHasErrors('attendees.0.shirt_size_other');
 
         $this->assertDatabaseCount('registrations', 0);
     }
@@ -195,7 +236,7 @@ class RegistrationTest extends TestCase
             Registration::latest('id')->firstOrFail()->proof_of_payment_path,
         );
         $this->assertNull(Registration::firstOrFail()->google_sheets_synced_at);
-        Mail::assertSent(RegistrationReceived::class, 3);
+        Mail::assertSent(RegistrationReceived::class, 2);
 
         $submitterMail = null;
         Mail::assertSent(
@@ -212,37 +253,17 @@ class RegistrationTest extends TestCase
         );
         $this->assertNotNull($submitterMail);
         $this->assertCount(2, $submitterMail->registrations);
+        $this->assertCount(0, $submitterMail->attachments());
 
-        $attachment = $submitterMail->attachments()[0];
-        $this->assertSame('convention-registrations.xlsx', $attachment->as);
-        $this->assertSame(
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            $attachment->mime,
-        );
-
-        $workbookContents = null;
-        $attachment->attachWith(
-            static fn () => null,
-            static function ($data) use (&$workbookContents) {
-                $workbookContents = $data();
+        Mail::assertSent(
+            RegistrationReceived::class,
+            function (RegistrationReceived $mail): bool {
+                return $mail->hasTo('organizer@example.com')
+                    && $mail->includeProof
+                    && count($mail->registrations) === 2;
             },
         );
-        $this->assertIsString($workbookContents);
 
-        $file = tempnam(sys_get_temp_dir(), 'convention-email-export-');
-        $this->assertNotFalse($file);
-        try {
-            file_put_contents($file, $workbookContents);
-            $spreadsheet = IOFactory::load($file);
-            $sheet = $spreadsheet->getActiveSheet();
-            $this->assertSame('Surname', $sheet->getCell('B1')->getValue());
-            $this->assertSame('Santos', $sheet->getCell('B2')->getValue());
-            $this->assertSame('Reyes', $sheet->getCell('B3')->getValue());
-            $this->assertSame('2000-01-15', $sheet->getCell('N2')->getValue());
-            $this->assertSame('alex@example.com', $sheet->getCell('K2')->getValue());
-        } finally {
-            unlink($file);
-        }
     }
 
     public function test_batch_is_appended_to_the_configured_google_sheet(): void
@@ -253,7 +274,7 @@ class RegistrationTest extends TestCase
                 'access_token' => 'test-access-token',
                 'expires_in' => 3600,
             ]),
-            'https://sheets.googleapis.com/v4/spreadsheets/*/values/*:append*' => Http::response([], 200),
+            'https://sheets.googleapis.com/v4/spreadsheets/*:batchUpdate' => Http::response([], 200),
             'https://sheets.googleapis.com/v4/spreadsheets/*/values/*' => Http::response([
                 'values' => [['District']],
             ]),
@@ -278,6 +299,13 @@ class RegistrationTest extends TestCase
 
         try {
             $data = $this->registrationData();
+            $pngContents = base64_decode(
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/vGkAAAAASUVORK5CYII=',
+                true,
+            );
+            $this->assertNotFalse($pngContents);
+            $data['proof_of_payment'] = UploadedFile::fake()->createWithContent('payment-proof.png', $pngContents);
+            $data['attendees'][0]['surname'] = '=1+1';
             $second = $data['attendees'][0];
             $second['surname'] = 'Reyes';
             $data['attendees'][] = $second;
@@ -294,17 +322,29 @@ class RegistrationTest extends TestCase
                 ->values();
 
             $this->assertCount(1, $appendRequests, json_encode($recordedRequests));
-            $this->assertStringContainsString(':append?', $appendRequests->first()[0]->url());
-            $rows = $appendRequests->first()[0]->data()['values'];
+            $this->assertStringContainsString(':batchUpdate', $appendRequests->first()[0]->url());
+            $sheetUpdate = $appendRequests->first()[0]->data()['requests'][0]['appendCells'];
+            $this->assertSame(0, $sheetUpdate['sheetId']);
+            $this->assertSame('userEnteredValue', $sheetUpdate['fields']);
+            $rows = $sheetUpdate['rows'];
             $birthdateHeaderRequests = Http::recorded()->filter(
                 fn ($pair) => $pair[0]->method() === 'PUT'
                     && $pair[0]->data() === ['values' => [['Birthdate']]],
             );
             $this->assertCount(2, $rows);
-            $this->assertSame('Santos', $rows[0][1]);
-            $this->assertSame('Reyes', $rows[1][1]);
-            $this->assertSame('2000-01-15', $rows[0][13]);
-            $this->assertSame('alex@example.com', $rows[0][10]);
+            $this->assertSame('=1+1', $rows[0]['values'][1]['userEnteredValue']['stringValue']);
+            $proofFormula = $rows[0]['values'][11]['userEnteredValue']['formulaValue'];
+            $this->assertStringStartsWith(
+                '=HYPERLINK("'.rtrim((string) config('app.url'), '/').'/registration/',
+                $proofFormula,
+            );
+            $this->assertStringEndsWith(
+                '","See proof of payment (CD)")',
+                $proofFormula,
+            );
+            $this->assertSame('', $rows[1]['values'][11]['userEnteredValue']['stringValue']);
+            $this->assertSame('2000-01-15', $rows[0]['values'][13]['userEnteredValue']['stringValue']);
+            $this->assertSame('alex@example.com', $rows[0]['values'][10]['userEnteredValue']['stringValue']);
             $this->assertCount(1, $birthdateHeaderRequests);
             Http::assertSent(fn ($request) => $request->hasHeader('Accept', 'application/json'));
         } finally {
@@ -436,6 +476,69 @@ class RegistrationTest extends TestCase
         }
     }
 
+    public function test_admin_sync_adds_a_shared_payment_proof_only_once_across_batches(): void
+    {
+        $registrationData = $this->registrationData()['attendees'][0];
+        foreach (range(1, 51) as $attendeeNumber) {
+            Registration::create([
+                ...$registrationData,
+                'surname' => 'Attendee '.$attendeeNumber,
+                'district' => 'CD',
+                'email' => 'alex@example.com',
+                'proof_of_payment_path' => 'proof-of-payment/shared-payment-proof.pdf',
+            ]);
+        }
+
+        Http::fake([
+            'https://sheets.googleapis.com/v4/spreadsheets/*:batchUpdate' => Http::response([], 200),
+            'https://sheets.googleapis.com/v4/spreadsheets/*/values/*' => Http::response([
+                'values' => [['District']],
+            ]),
+            'https://sheets.googleapis.com/v4/spreadsheets/*' => Http::response([
+                'sheets' => [[
+                    'properties' => ['sheetId' => 0, 'title' => 'Attendee List'],
+                ]],
+            ]),
+        ]);
+
+        $credentialsPath = $this->createGoogleCredentialsFile();
+        Cache::put(
+            'google_sheets_token_'.hash('sha256', 'convention-test@example.iam.gserviceaccount.com'),
+            'test-access-token',
+            now()->addMinutes(10),
+        );
+        config([
+            'services.google_sheets.spreadsheet_id' => 'test-spreadsheet-id',
+            'services.google_sheets.tab_id' => '0',
+            'services.google_sheets.credentials_path' => $credentialsPath,
+        ]);
+
+        try {
+            $this->withSession(['admin_authenticated' => true])
+                ->post(route('admin.sync'))
+                ->assertRedirect()
+                ->assertSessionHas('syncSuccess', 'All pending registrations were added to Google Sheets.');
+
+            $appendRequests = Http::recorded()->filter(
+                fn ($pair) => $pair[0]->method() === 'POST'
+                    && str_contains($pair[0]->url(), ':batchUpdate'),
+            );
+            $this->assertCount(2, $appendRequests);
+            $rows = $appendRequests->values()->flatMap(
+                fn ($pair) => $pair[0]->data()['requests'][0]['appendCells']['rows'],
+            );
+            $proofCells = $rows->map(
+                fn (array $row) => $row['values'][11]['userEnteredValue']['stringValue'],
+            );
+            $this->assertSame(1, $proofCells->filter(
+                fn (string $proofCell) => $proofCell !== '',
+            )->count());
+            $this->assertSame('shared-payment-proof.pdf', $proofCells->first());
+        } finally {
+            unlink($credentialsPath);
+        }
+    }
+
     public function test_admin_sync_failure_keeps_registration_pending(): void
     {
         $registrationData = $this->registrationData()['attendees'][0];
@@ -544,7 +647,7 @@ class RegistrationTest extends TestCase
                 'access_token' => 'oauth-access-token',
                 'expires_in' => 3600,
             ]),
-            'https://sheets.googleapis.com/v4/spreadsheets/*/values/*:append*' => Http::response([], 200),
+            'https://sheets.googleapis.com/v4/spreadsheets/*:batchUpdate' => Http::response([], 200),
             'https://sheets.googleapis.com/v4/spreadsheets/*/values/*' => Http::response([
                 'values' => [['District']],
             ]),
@@ -575,9 +678,11 @@ class RegistrationTest extends TestCase
             $this->assertNotNull(Registration::firstOrFail()->fresh()->google_sheets_synced_at);
             $appendRequests = Http::recorded()->filter(
                 fn ($pair) => $pair[0]->method() === 'POST'
-                    && str_contains($pair[0]->url(), '/values/'),
+                    && str_contains($pair[0]->url(), ':batchUpdate'),
             );
             $this->assertCount(1, $appendRequests);
+            $proofCell = $appendRequests->first()[0]->data()['requests'][0]['appendCells']['rows'][0]['values'][11]['userEnteredValue'];
+            $this->assertStringEndsWith('.pdf', $proofCell['stringValue']);
         } finally {
             unlink($credentialsPath);
         }
@@ -809,9 +914,39 @@ class RegistrationTest extends TestCase
             $this->assertSame('L2', $drawings[0]->getCoordinates());
             $this->assertGreaterThan(0, $drawings[0]->getWidth());
             $this->assertGreaterThan(0, $drawings[0]->getHeight());
+            $this->assertSame(150.0, $spreadsheet->getActiveSheet()->getRowDimension(2)->getRowHeight());
+            $this->assertSame(50.0, $spreadsheet->getActiveSheet()->getColumnDimension('L')->getWidth());
         } finally {
             unlink($file);
         }
+    }
+
+    public function test_signed_image_proof_url_is_public_but_cannot_be_modified(): void
+    {
+        $proofPath = 'proof-of-payment/payment-proof.png';
+        $imageContents = base64_decode(
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/vGkAAAAASUVORK5CYII=',
+            true,
+        );
+        $this->assertNotFalse($imageContents);
+        Storage::disk('local')->put($proofPath, $imageContents);
+
+        $registration = Registration::create([
+            ...$this->registrationData()['attendees'][0],
+            'district' => 'CD',
+            'email' => 'alex@example.com',
+            'proof_of_payment_path' => $proofPath,
+        ]);
+        $signedUrl = URL::signedRoute(
+            'registrations.proof-image',
+            ['registration' => $registration],
+            absolute: false,
+        );
+
+        $this->get($signedUrl)
+            ->assertOk()
+            ->assertHeader('Content-Type', 'image/png');
+        $this->get($signedUrl.'&modified=1')->assertForbidden();
     }
 
     public function test_admin_can_sign_in_with_the_configured_access_key(): void
@@ -822,6 +957,87 @@ class RegistrationTest extends TestCase
             ->assertRedirect(route('admin.index'));
 
         $this->get(route('admin.index'))->assertOk();
+    }
+
+    public function test_admin_can_add_an_access_email(): void
+    {
+        $response = $this->withSession(['admin_authenticated' => true])
+            ->post(route('admin.access-emails.store'), ['email' => ' NewUser@Example.com ']);
+
+        $response->assertRedirect();
+        $response->assertSessionHas('accessEmailSuccess', 'Access email added.');
+        $this->assertDatabaseHas('allowed_emails', ['email' => 'newuser@example.com']);
+
+        $this->post(route('registrations.verify-email'), ['email' => 'newuser@example.com'])
+            ->assertRedirect(route('registrations.details'));
+    }
+
+    public function test_admin_can_add_multiple_access_emails(): void
+    {
+        $response = $this->withSession(['admin_authenticated' => true])
+            ->post(route('admin.access-emails.store'), ['emails' => "one@example.com\ntwo@example.com"]);
+
+        $response->assertSessionHas('accessEmailSuccess', '2 access emails added.');
+        $this->assertDatabaseHas('allowed_emails', ['email' => 'one@example.com']);
+        $this->assertDatabaseHas('allowed_emails', ['email' => 'two@example.com']);
+    }
+
+    public function test_adding_an_access_email_requires_admin_access(): void
+    {
+        $this->post(route('admin.access-emails.store'), ['email' => 'newuser@example.com'])
+            ->assertRedirect(route('admin.login'));
+
+        $this->assertDatabaseCount('allowed_emails', 0);
+    }
+
+    public function test_admin_can_remove_a_database_access_email(): void
+    {
+        $this->withSession(['admin_authenticated' => true])
+            ->post(route('admin.access-emails.store'), ['email' => 'newuser@example.com']);
+
+        $response = $this->delete(
+            route('admin.access-emails.destroy', ['email' => 'newuser@example.com']),
+            [],
+            ['Referer' => route('admin.index')],
+        );
+
+        $response->assertRedirect();
+        $response->assertSessionHas('accessEmailSuccess', 'Access email removed.');
+        $this->assertDatabaseMissing('allowed_emails', ['email' => 'newuser@example.com']);
+    }
+
+    public function test_removing_an_access_email_requires_admin_access(): void
+    {
+        AllowedEmail::query()->create(['email' => 'newuser@example.com']);
+
+        $this->delete(route('admin.access-emails.destroy', ['email' => 'newuser@example.com']))
+            ->assertRedirect(route('admin.login'));
+
+        $this->assertDatabaseHas('allowed_emails', ['email' => 'newuser@example.com']);
+    }
+
+    public function test_admin_can_remove_multiple_database_access_emails(): void
+    {
+        AllowedEmail::query()->create(['email' => 'one@example.com']);
+        AllowedEmail::query()->create(['email' => 'two@example.com']);
+
+        $response = $this->withSession(['admin_authenticated' => true])
+            ->post(route('admin.access-emails.destroy-many'), [
+                'emails' => ['one@example.com', 'two@example.com'],
+            ]);
+
+        $response->assertSessionHas('accessEmailSuccess', '2 access emails removed.');
+        $this->assertDatabaseMissing('allowed_emails', ['email' => 'one@example.com']);
+        $this->assertDatabaseMissing('allowed_emails', ['email' => 'two@example.com']);
+    }
+
+    public function test_adding_an_access_email_validates_the_email_address(): void
+    {
+        $this->withSession(['admin_authenticated' => true])
+            ->post(route('admin.access-emails.store'), ['email' => 'not-an-email'])
+            ->assertSessionHasErrors('emails.0');
+
+        $this->assertDatabaseCount('allowed_emails', 0);
     }
 
     private function registrationData(): array

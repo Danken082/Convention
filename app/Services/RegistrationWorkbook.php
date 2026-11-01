@@ -84,9 +84,9 @@ class RegistrationWorkbook
                         ->setPath($imagePath)
                         ->setCoordinates('L'.$row)
                         ->setResizeProportional(true)
-                        ->setWidthAndHeight(170, 90)
+                        ->setWidthAndHeight(340, 200)
                         ->setWorksheet($sheet);
-                    $sheet->getRowDimension($row)->setRowHeight(72);
+                    $sheet->getRowDimension($row)->setRowHeight(150);
                 }
             }
 
@@ -96,7 +96,7 @@ class RegistrationWorkbook
         foreach (range('A', 'N') as $column) {
             $sheet->getColumnDimension($column)->setAutoSize(true);
         }
-        $sheet->getColumnDimension('L')->setAutoSize(false)->setWidth(26);
+        $sheet->getColumnDimension('L')->setAutoSize(false)->setWidth(50);
 
         return $spreadsheet;
     }

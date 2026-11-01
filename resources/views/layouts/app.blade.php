@@ -136,6 +136,32 @@
         .admin-header h1 { font-size: 28px; }
         .admin-actions { display: flex; gap: 10px; align-items: center; }
         .admin-actions form { margin: 0; }
+        body.admin-page .access-email-menu { position: relative; }
+        body.admin-page .access-email-menu summary { list-style: none; }
+        body.admin-page .access-email-menu summary::-webkit-details-marker { display: none; }
+        body.admin-page .access-email-menu form {
+            position: absolute;
+            z-index: 2;
+            top: calc(100% + 8px);
+            right: 0;
+            width: 260px;
+            padding: 14px;
+            border: 1px solid #d9d9d9;
+            border-radius: 6px;
+            background: #fff;
+            box-shadow: 0 8px 20px rgb(0 0 0 / 12%);
+        }
+        body.admin-page .access-email-menu form button {
+            width: 100%;
+            margin-top: 12px;
+        }
+        body.admin-page .access-email-list { overflow-wrap: anywhere; }
+        body.admin-page textarea { width: 100%; border: 1px solid #cfdae2; border-radius: 8px; padding: 10px 12px; color: #182b3b; background: #fff; font: inherit; resize: vertical; }
+        body.admin-page textarea:focus { outline: 3px solid rgb(31 132 101 / 18%); border-color: #1f8465; }
+        body.admin-page #access-emails-dialog { width: min(520px, calc(100% - 28px)); }
+        body.admin-page .access-email-options { display: grid; gap: 10px; max-height: 45vh; overflow-y: auto; }
+        body.admin-page .access-email-options label { display: flex; align-items: center; gap: 10px; margin: 0; overflow-wrap: anywhere; }
+        body.admin-page .access-email-options input { width: 18px; min-height: 18px; flex: 0 0 auto; }
         .table-wrap { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
         th, td { padding: 12px 10px; border-bottom: 1px solid #e6ecef; text-align: left; white-space: nowrap; }

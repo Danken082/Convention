@@ -6,7 +6,7 @@
             <a href="{{ $spreadsheetUrl }}">Open the convention registration spreadsheet</a>
         @endif
     @else
-        Thank you. Your registration data is attached as an Excel workbook.
+        Thank you. Your registration details are listed below.
     @endif
 </p>
 @foreach ($attendees as $attendee)
