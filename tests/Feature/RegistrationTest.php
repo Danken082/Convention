@@ -75,6 +75,7 @@ class RegistrationTest extends TestCase
         );
     }
 
+//dasd
     public function test_invalid_district_is_rejected_and_not_saved(): void
     {
         $data = $this->registrationData();
