@@ -167,7 +167,7 @@ class RegistrationController extends Controller
             'attendees.*.birthdate' => [
                 'required',
                 'date_format:Y-m-d',
-                'before:2010-07-23',
+                'before:2011-07-23',
             ],
             'attendees.*.age' => ['required', 'integer', 'between:16,120'],
             'attendees.*.gender' => ['required', Rule::in(config('registrations.genders'))],
@@ -177,7 +177,7 @@ class RegistrationController extends Controller
             'attendees.*.ministry' => ['required', 'string', 'max:150'],
             'email' => ['required', 'email', 'max:255', Rule::in($this->accessEmailService->all())],
         ], [
-            'attendees.*.birthdate.before' => 'Attendees born on or after July 23, 2010 cannot register.',
+            'attendees.*.birthdate.before' => 'Attendees born on or after July 23, 2011 cannot register.',
             'attendees.*.age.between' => 'Each attendee must be at least 16 years old to register.',
         ]);
 

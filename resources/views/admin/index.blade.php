@@ -85,6 +85,8 @@
                         <th>District</th>
                         <th>Email</th>
                         <th>Birthdate</th>
+                        <th>Age</th>
+                        <th>Shirt size</th>
                         <th>Division</th>
                         <th>Ministry</th>
                         <th>Google Sheets</th>
@@ -98,15 +100,17 @@
                             <td>{{ $registration->surname }}, {{ $registration->given_name }} {{ $registration->middle_initial }}</td>
                             <td>{{ $registration->district }}</td>
                             <td>{{ $registration->email }}</td>
-                            <td>{{ $registration->birthdate?->format('Y-m-d') ?? '—' }}</td>
+                            <td>{{ $registration->birthdate?->format('F j, Y') ?? '—' }}</td>
+                            <td>{{ $registration->age }}</td>
+                            <td>{{ $registration->shirt_size }}</td>
                             <td>{{ $registration->division }}</td>
                             <td>{{ $registration->ministry }}</td>
                             <td>{{ $registration->google_sheets_synced_at ? 'Synced' : 'Pending' }}</td>
                             <td><a href="{{ route('admin.proof', $registration) }}">Download</a></td>
-                            <td>{{ $registration->created_at->format('Y-m-d H:i') }}</td>
+                            <td>{{ $registration->created_at->copy()->timezone(config('registrations.display_timezone'))->format('F j, Y g:i A') }} Philippine Time</td>
                         </tr>
                     @empty
-                        <tr><td colspan="9">No registrations have been submitted yet.</td></tr>
+                        <tr><td colspan="11">No registrations have been submitted yet.</td></tr>
                     @endforelse
                 </tbody>
             </table>
@@ -118,7 +122,7 @@
     @if ($accessEmails !== [])
         <dialog id="access-emails-dialog" aria-labelledby="access-emails-title">
             <h2 id="access-emails-title">Approved emails</h2>
-            <p>Select one or more database-managed emails to remove. Configured emails cannot be removed here.</p>
+            <p>Select one or more Access emails to remove</p>
             <form action="{{ route('admin.access-emails.destroy-many') }}" method="POST">
                 @csrf
                 <div class="access-email-options">

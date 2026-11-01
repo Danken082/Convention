@@ -59,7 +59,13 @@ class RegistrationTest extends TestCase
             RegistrationReceived::class,
             fn (RegistrationReceived $mail) => $mail->hasTo('alex@example.com')
                 && ! $mail->includeProof
-                && str_contains($mail->render(), 'Birthdate:'),
+                && str_contains($mail->render(), 'Birthdate')
+                && str_contains($mail->render(), 'January 15, 2000')
+                && str_contains($mail->render(), 'Submitted:')
+                && str_contains($mail->render(), 'Philippine Time')
+                && str_contains($mail->render(), asset('images/unstoppable-2027-banner.png'))
+                && str_contains($mail->render(), 'FOURSQUARE GLOBAL CONFERENCE FOR YOUNG ADULTS 2027!')
+                && str_contains($mail->render(), 'https://www.facebook.com/FoursquareYouthPhilippines'),
         );
         Mail::assertSent(
             RegistrationReceived::class,
@@ -109,21 +115,21 @@ class RegistrationTest extends TestCase
     public function test_attendees_under_16_cannot_register(): void
     {
         $data = $this->registrationData();
-        $data['attendees'][0]['birthdate'] = '2010-07-23';
+        $data['attendees'][0]['birthdate'] = '2011-07-23';
 
         $this->post(route('registrations.store'), $data)
             ->assertSessionHasErrors([
-                'attendees.0.birthdate' => 'Attendees born on or after July 23, 2010 cannot register.',
+                'attendees.0.birthdate' => 'Attendees born on or after July 23, 2011 cannot register.',
             ]);
 
         $this->assertDatabaseCount('registrations', 0);
     }
 
-    public function test_birthdate_before_july_23_2010_can_register_at_age_16(): void
+    public function test_birthdate_before_july_23_2011_can_register_at_age_16(): void
     {
         Mail::fake();
         $data = $this->registrationData();
-        $data['attendees'][0]['birthdate'] = '2010-07-22';
+        $data['attendees'][0]['birthdate'] = '2011-07-22';
         $data['attendees'][0]['age'] = '16';
 
         $this->post(route('registrations.store'), $data)
@@ -253,7 +259,11 @@ class RegistrationTest extends TestCase
         );
         $this->assertNotNull($submitterMail);
         $this->assertCount(2, $submitterMail->registrations);
-        $this->assertCount(0, $submitterMail->attachments());
+        $this->assertCount(1, $submitterMail->attachments());
+        $this->assertSame(
+            basename(Registration::firstOrFail()->proof_of_payment_path),
+            $submitterMail->attachments()[0]->as,
+        );
 
         Mail::assertSent(
             RegistrationReceived::class,
@@ -343,7 +353,11 @@ class RegistrationTest extends TestCase
                 $proofFormula,
             );
             $this->assertSame('', $rows[1]['values'][11]['userEnteredValue']['stringValue']);
-            $this->assertSame('2000-01-15', $rows[0]['values'][13]['userEnteredValue']['stringValue']);
+            $this->assertSame('January 15, 2000', $rows[0]['values'][13]['userEnteredValue']['stringValue']);
+            $this->assertMatchesRegularExpression(
+                '/^[A-Z][a-z]+ \d{1,2}, \d{4} \d{1,2}:\d{2} [AP]M$/',
+                $rows[0]['values'][12]['userEnteredValue']['stringValue'],
+            );
             $this->assertSame('alex@example.com', $rows[0]['values'][10]['userEnteredValue']['stringValue']);
             $this->assertCount(1, $birthdateHeaderRequests);
             Http::assertSent(fn ($request) => $request->hasHeader('Accept', 'application/json'));
@@ -636,7 +650,8 @@ class RegistrationTest extends TestCase
             ->get(route('admin.index'))
             ->assertOk()
             ->assertSee('Birthdate')
-            ->assertSee('2000-01-15');
+            ->assertSee('January 15, 2000')
+            ->assertSee('Philippine Time');
     }
 
     public function test_oauth_client_appends_registration_to_google_sheet_after_authorization(): void
@@ -874,7 +889,11 @@ class RegistrationTest extends TestCase
             $this->assertSame('District', $spreadsheet->getActiveSheet()->getCell('A1')->getValue());
             $this->assertSame('28', $spreadsheet->getActiveSheet()->getCell('F2')->getValue());
             $this->assertSame('alex@example.com', $spreadsheet->getActiveSheet()->getCell('K2')->getValue());
-            $this->assertSame('2000-01-15', $spreadsheet->getActiveSheet()->getCell('N2')->getValue());
+            $this->assertSame('January 15, 2000', $spreadsheet->getActiveSheet()->getCell('N2')->getValue());
+            $this->assertMatchesRegularExpression(
+                '/^[A-Z][a-z]+ \d{1,2}, \d{4} \d{1,2}:\d{2} [AP]M$/',
+                $spreadsheet->getActiveSheet()->getCell('M2')->getValue(),
+            );
         } finally {
             unlink($file);
         }

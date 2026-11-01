@@ -61,8 +61,10 @@ class RegistrationWorkbook
                 $registration->ministry,
                 $registration->email,
                 basename($proofPath),
-                $registration->created_at?->toDateTimeString() ?? '',
-                $registration->birthdate?->format('Y-m-d') ?? '',
+                $registration->created_at?->copy()
+                    ->timezone(config('registrations.display_timezone'))
+                    ->format('F j, Y g:i A') ?? '',
+                $registration->birthdate?->format('F j, Y') ?? '',
             ];
 
             foreach ($values as $column => $value) {

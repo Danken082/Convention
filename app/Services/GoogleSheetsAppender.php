@@ -247,8 +247,11 @@ class GoogleSheetsAppender
                 $registration->ministry,
                 $registration->email,
                 basename($registration->proof_of_payment_path),
-                $registration->created_at->toDateTimeString(),
-                $registration->birthdate?->format('Y-m-d') ?? '',
+                $registration->created_at
+                    ->copy()
+                    ->timezone(config('registrations.display_timezone'))
+                    ->format('F j, Y g:i A'),
+                $registration->birthdate?->format('F j, Y') ?? '',
             ];
             $proofPath = $registration->proof_of_payment_path;
             if (isset($previouslySyncedProofPaths[$proofPath]) || isset($includedProofPaths[$proofPath])) {

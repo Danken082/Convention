@@ -40,6 +40,9 @@ class RegistrationReceived extends Mailable
             with: [
                 'spreadsheetUrl' => $spreadsheetUrl,
                 'attendees' => $this->registrations ?: [$this->registration],
+                'submittedAt' => $this->registration->created_at?->copy()
+                    ->timezone(config('registrations.display_timezone'))
+                    ->format('F j, Y g:i A'),
             ],
         );
     }
@@ -53,6 +56,9 @@ class RegistrationReceived extends Mailable
             ];
         }
 
-        return [];
+        return [
+            Attachment::fromStorageDisk('local', $this->registration->proof_of_payment_path)
+                ->as(basename($this->registration->proof_of_payment_path)),
+        ];
     }
 }

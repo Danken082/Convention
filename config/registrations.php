@@ -1,6 +1,7 @@
 <?php
 
 return [
+    'display_timezone' => 'Asia/Manila',
     'admin_email' => env('ADMIN_EMAIL'),
     'admin_export_key' => env('ADMIN_EXPORT_KEY'),
     'allowed_emails' => array_values(array_filter(array_map(

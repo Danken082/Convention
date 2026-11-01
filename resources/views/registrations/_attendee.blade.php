@@ -25,8 +25,8 @@
         </div>
         <div class="field">
             <label for="attendees_{{ $index }}_birthdate">Birthdate <span class="required">*</span></label>
-            <input id="attendees_{{ $index }}_birthdate" name="attendees[{{ $index }}][birthdate]" type="date" value="{{ $attendee['birthdate'] ?? '' }}" autocomplete="bday" max="2010-07-22" required>
-            <p class="hint">Attendees must be born before July 23, 2010 and be at least 16 years old.</p>
+            <input id="attendees_{{ $index }}_birthdate" name="attendees[{{ $index }}][birthdate]" type="date" value="{{ $attendee['birthdate'] ?? '' }}" autocomplete="bday" max="2011-07-22" required>
+            <p class="hint">Attendees must be born before July 23, 2011 and be at least 16 years old.</p>
             @error('attendees.'.$index.'.birthdate') <p class="error-text">{{ $message }}</p> @enderror
         </div>
         <div class="field">
